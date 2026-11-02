@@ -1,0 +1,6 @@
+{
+  "backend_python": "~/venvs/openvla-oft/bin/python",
+  "libero_root": "~/projects/LIBERO",
+  "libero_config_path": "settings/libero",
+  "oft_root": "~/projects/openvla-oft"
+}

@@ -1,0 +1,19 @@
+# Python 3.10 / Linux x86_64. Torch is installed separately from the CPU index.
+# No transformers, TensorFlow, OpenVLA, training datasets or VLA weights.
+numpy==1.26.4
+mujoco==2.3.7
+robosuite==1.4.1
+Pillow==12.3.0
+opencv-python==4.11.0.86
+scipy==1.15.3
+numba==0.68.1
+llvmlite==0.50.0
+PyOpenGL==3.1.10
+gym==0.26.2
+bddl==3.6.0
+easydict==1.13
+PyYAML==6.0.3
+future==1.0.0
+matplotlib==3.10.9
+imageio==2.38.0
+cloudpickle==3.1.2
