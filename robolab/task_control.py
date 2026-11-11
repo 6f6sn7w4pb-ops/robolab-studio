@@ -9,6 +9,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import mujoco
+from .adapters import PandaPoseIK
 
 class LiberoRuntime:
     def __init__(self, engine):
@@ -57,15 +58,19 @@ class ScriptedPickPlace:
     names=('稳定物体','移动至目标上方','下降对齐','闭合夹爪','抬起验证','移动至篮子上方','下降放置','松开夹爪','抬手避让','检查任务结果')
     durations=(1.,3.,3.,1.,3.,5.,2.,1.,2.,1.)
 
-    def __init__(self,engine):
+    def __init__(self,engine, *, record_contacts=False):
         if engine.task['suite']!='libero_object' or engine.task['index']!=0:
             raise ValueError('规则抓取自检目前仅验证 LIBERO-Object 第一个汤罐任务；其他任务请接入 VLA 策略')
         if engine.objects:
             raise ValueError('请在未添加额外物体的默认场景中运行抓取自检')
+        if record_contacts:
+            sampler = engine.contact_sampler
+            if sampler is None or sampler.profile.target_body != 'alphabet_soup_1_main':
+                raise ValueError('请先为当前汤罐启用接触采样，再记录 P3')
+            sampler.check_native_capability()
         self.engine=engine
         self.runtime=LiberoRuntime(engine)
-        self.scratch=mujoco.MjData(engine.model)
-        self.jp=np.zeros((3,engine.model.nv)); self.jr=np.zeros_like(self.jp)
+        self.pose_ik = PandaPoseIK(engine.robot)
         self.rotation=np.array([[0.,1,0],[1,0,0],[0,0,-1]])
         self.index=0; self.started=float(engine.data.time); self.segment_started=self.started
         self.segment_from=engine.data.site_xpos[engine.robot.site].copy()
@@ -73,44 +78,46 @@ class ScriptedPickPlace:
         self.target=engine.model.body('alphabet_soup_1_main').id
         self.destination=engine.model.body('basket_1_main').id
         self.closed=False
+        self.recorder = self.contact_recorder = None
         from .p2_recording import GraspEvidence,FingerContactProbe,P2EpisodeRecorder
         try:
             self.evidence=GraspEvidence()
             self.contact_probe=FingerContactProbe(engine,self.target)
-            self.recorder=P2EpisodeRecorder(engine,self.target,self.contact_probe,self.evidence)
+            self.recorder=P2EpisodeRecorder(engine,self.target,self.contact_probe,self.evidence,record_contacts=record_contacts)
             self.recorder.capture(self.names[0])
-        except Exception:
-            self.runtime.close()
+            if record_contacts:
+                from .p3_recording import ContactRecorder
+                self.contact_recorder = ContactRecorder(self.recorder, sampler)
+        except Exception as error:
+            try: self.runtime.close()
+            finally:
+                if self.recorder is not None:
+                    if self.recorder.count:
+                        engine.last_episode = self.recorder.finish(dict(status='failed', phase=str(error)))
+                    else:
+                        self.recorder.trajectory.close()
             raise
 
     def status(self):
-        return {'kind':'scripted_self_test','status':'running','phase':self.names[min(self.index,9)],
+        result = {'kind':'scripted_self_test','status':'running','phase':self.names[min(self.index,9)],
                 'progress':min(.99,max(0,(self.engine.data.time-self.started)/sum(self.durations))),
                 'is_vla':False,'official_success':None,'record_dir':str(self.recorder.directory),
                 'metrics':self.evidence.summary(),'sample_count':self.recorder.count}
+        if self.contact_recorder:
+            result['contact_recording'] = self.contact_recorder.summary()
+        return result
 
     def after_step(self):
         contacts=self.contact_probe.read()
         self.evidence.observe(float(self.engine.data.time),float(self.engine.data.xpos[self.target,2]),
                               *contacts,lifting=self.index in (3,4))
         self.recorder.capture(self.names[min(self.index,9)],contacts)
+        if self.contact_recorder:
+            self.contact_recorder.capture(float(self.engine.data.time))
         self.engine.execution=self.status()
 
     def _ik(self,position):
-        e=self.engine; m,d,r=e.model,e.data,e.robot
-        self.scratch.qpos[:]=d.qpos
-        self.scratch.qpos[r.qadr]=r.targets
-        for _ in range(12):
-            mujoco.mj_forward(m,self.scratch)
-            current=self.scratch.site_xmat[r.site].reshape(3,3)
-            er=.5*np.cross(current.T,self.rotation.T).sum(axis=0)
-            error=np.r_[position-self.scratch.site_xpos[r.site],er*.5]
-            if np.linalg.norm(error)<.0005: break
-            mujoco.mj_jacSite(m,self.scratch,self.jp,self.jr,r.site)
-            jac=np.r_[self.jp[:,r.vadr],self.jr[:,r.vadr]*.5]
-            delta=jac.T@np.linalg.solve(jac@jac.T+.0001*np.eye(6),error)
-            self.scratch.qpos[r.qadr]=np.clip(self.scratch.qpos[r.qadr]+np.clip(delta,-.08,.08),r.limits[:,0]+.01,r.limits[:,1]-.01)
-        r.targets[:]=self.scratch.qpos[r.qadr]
+        self.pose_ik.update(position, self.rotation)
 
     def before_step(self):
         e=self.engine; elapsed=e.data.time-self.segment_started
@@ -148,7 +155,16 @@ class ScriptedPickPlace:
             self.closed=True
             try: self.runtime.close()
             finally:
-                self.engine.last_episode=self.recorder.finish(self.engine.execution)
+                try:
+                    self.engine.last_episode=self.recorder.finish(self.engine.execution)
+                except Exception:
+                    if self.contact_recorder:
+                        self.contact_recorder.abort('Parent P2 finalization failed')
+                    raise
+                if self.contact_recorder:
+                    summary = self.contact_recorder.finish()
+                    self.engine.last_episode['contact_recording'] = summary
+                    self.engine.execution['contact_recording'] = summary
                 self.engine.execution.update(record_dir=str(self.recorder.directory),metrics=self.evidence.summary(),sample_count=self.recorder.count)
 
 class PolicyExecution:

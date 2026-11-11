@@ -44,6 +44,19 @@ def dispatch(engine, op, args):
     elif op == 'step': engine.pause(); engine.step()
     elif op == 'mode': engine.set_mode(args['mode'])
     elif op == 'joint': engine.set_joint(args['index'], args['radians'])
+    elif op == 'jog_xyz': return engine.jog_xyz(args['delta'], args.get('frame', 'world'))
+    elif op == 'contact_configure': return engine.configure_contacts(args.get('enabled', True), args.get('target_body','alphabet_soup_1_main'), args.get('force_epsilon_N',1e-6))
+    elif op == 'contact_sample': return {'status': engine.contact_sampling_status(), 'sample': engine.contact_sample()}
+    elif op == 'contact_view': return engine.configure_contact_view(args['enabled'], args.get('contact_filter', 'target'), args.get('forces', False))
+    elif op == 'records_list':
+        from .episode_store import list_episodes
+        return list_episodes(args.get('root'))
+    elif op == 'replay_open': return engine.open_replay(args['directory'])
+    elif op == 'replay_seek':
+        return engine.replay_frame(args['index'], contact_view=args.get('contact_view', False),
+                                   contact_filter=args.get('contact_filter', 'target'),
+                                   forces=args.get('forces', False), camera=args.get('camera', 'agentview'))
+    elif op == 'replay_close': engine.close_replay(); return {'closed': True}
     elif op == 'gripper': engine.set_gripper(args['opening'])
     elif op == 'policy_scan':
         from .policy import scan_checkpoints
@@ -58,7 +71,7 @@ def dispatch(engine, op, args):
                                                  'proprio_dim':len(observation['proprio']),'sim_time':observation['sim_time']}}
     elif op == 'policy_run': return engine.start_policy(args.get('max_steps',20))
     elif op == 'policy_stop': return engine.stop_execution()
-    elif op == 'grasp_test': return engine.start_grasp_test()
+    elif op == 'grasp_test': return engine.start_grasp_test(record_contacts=args.get('record_contacts', False))
     elif op == 'camera': engine.move_camera(args['action'], args.get('dx', 0), args.get('dy', 0))
     elif op == 'axes': engine.axes = bool(args['visible'])
     elif op == 'select': return engine.select(args['id'])
@@ -103,7 +116,7 @@ def main():
                 op, args, request_id = cmd.get('op'), cmd.get('args', {}), cmd.get('id')
                 try:
                     if not isinstance(args, dict): raise ValueError('args must be an object')
-                    if op in ('load_task', 'load', 'add', 'update', 'delete','policy_scan','policy_configure','policy_load','policy_run','grasp_test'):
+                    if op in ('load_task', 'load', 'add', 'update', 'delete','policy_scan','policy_configure','policy_load','policy_run','grasp_test','replay_open'):
                         emit('busy', op=op)
                     with contextlib.redirect_stdout(sys.stderr):
                         if op == 'camera_stream':
@@ -146,7 +159,8 @@ def main():
                     from PIL import Image
                     buf = io.BytesIO()
                     Image.fromarray(engine.render()).save(buf, 'JPEG', quality=85)
-                    emit('frame', jpeg=base64.b64encode(buf.getvalue()).decode('ascii'), state=engine.state())
+                    emit('frame', jpeg=base64.b64encode(buf.getvalue()).decode('ascii'), state=engine.state(),
+                         rendered_contacts=engine.rendered_contacts)
                     next_frame = time.monotonic()+1/15
                 except Exception as error:
                     engine.running = False

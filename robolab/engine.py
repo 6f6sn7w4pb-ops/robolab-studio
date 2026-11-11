@@ -78,6 +78,13 @@ class Engine:
         self.model_inspection = None
         self.observation_sequence = 0
         self.last_episode = None
+        self.jog = {'status': 'idle'}
+        self.replay = None
+        self.contact_sampler = None
+        self.contact_unavailable = {'enabled': False, 'availability': 'disabled', 'reason': 'not_configured'}
+        self.contact_view = {'enabled': False, 'contact_filter': 'target', 'forces': False}
+        self.contact_view_data = None
+        self.rendered_contacts = None
 
     @staticmethod
     def tasks(suite_name='libero_object'):
@@ -221,6 +228,7 @@ class Engine:
         else:
             renderer = mujoco.Renderer(model, height=self.height, width=self.width)
         self.model, self.data, self.robot, self.renderer = model, data, adapter, renderer
+        self._invalidate_contacts('scene_rebuilt_reconfigure', unbind=True)
         self.renderer._gl_context.make_current()
         print(f'[RoboLab timing] compile={compiled-started:.3f}s renderer={time.monotonic()-compiled:.3f}s', file=sys.stderr, flush=True)
 
@@ -232,7 +240,9 @@ class Engine:
         if mode not in ('edit', 'simulate'):
             raise ValueError('Unknown mode')
         self.running = False
+        self._invalidate_contacts('mode_changed')
         if mode == 'edit':
+            self.jog = {'status': 'idle'}
             self.cancel_execution()
             self.data.qvel[:] = 0
             self.robot.targets[:] = np.clip(self.data.qpos[self.robot.qadr], self.robot.limits[:, 0], self.robot.limits[:, 1])
@@ -252,6 +262,8 @@ class Engine:
     def reset(self):
         self._require()
         self.cancel_execution()
+        self._invalidate_contacts('layout_reset', reset_sequence=True)
+        self.jog = {'status': 'idle'}
         self.running, self.mode = False, 'edit'
         mujoco.mj_resetData(self.model, self.data)
         q, targets, opening = self.checkpoint
@@ -265,6 +277,7 @@ class Engine:
         if self.execution_runner and not self.execution_runner.closed:
             try:
                 if hasattr(self.execution_runner,'tick'):
+                    self._invalidate_contacts('policy_runtime_not_supported', availability='unsupported')
                     self.execution_runner.tick()
                     return
                 self.execution_runner.before_step()
@@ -276,19 +289,87 @@ class Engine:
                 raise
         try:
             dt = float(self.model.opt.timestep)
-            for _ in range(max(1, round(seconds/dt))):
+            steps = max(1, round(seconds/dt))
+            contact_input = None
+            for index in range(steps):
                 self.robot.apply_control(dt)
+                if self.contact_sampler and index == steps-1:
+                    from .p3_contact import ContactSamplingUnsupported
+                    try: contact_input = self.contact_sampler.prepare()
+                    except ContactSamplingUnsupported as error:
+                        self._invalidate_contacts(str(error), availability='unsupported')
                 mujoco.mj_step(self.model, self.data)
             if not np.isfinite(self.data.qpos).all() or np.max(np.abs(self.data.qvel)) > 1e4:
                 raise RuntimeError('Unstable physics; paused. Reset the layout before continuing.')
+            if contact_input is not None:
+                self.contact_sampler.capture(contact_input)
+            self._update_jog()
             if self.execution_runner and not self.execution_runner.closed and hasattr(self.execution_runner,'after_step'):
                 self.execution_runner.after_step()
         except Exception as error:
             self.running=False
+            self._invalidate_contacts(str(error), availability='error')
             if self.execution_runner and not self.execution_runner.closed:
                 self.execution.update(status='failed',phase=str(error))
                 self.execution_runner.close()
             raise
+
+    def configure_contacts(self, enabled=True, target_body='alphabet_soup_1_main', force_epsilon_N=1e-6):
+        self._require()
+        if not isinstance(enabled, bool): raise ValueError('接触采样配置仅接受布尔开关')
+        if self.execution_runner and not self.execution_runner.closed:
+            raise ValueError('请先结束策略执行，再配置接触采样')
+        if not enabled:
+            self.contact_sampler = None
+            self.contact_view['enabled'] = False
+            self.contact_view_data = None
+            self.contact_unavailable = {'enabled': False, 'availability': 'disabled', 'reason': 'disabled_by_user'}
+            return self.contact_sampling_status()
+        from .p3_contact import ContactSampler, ContactSamplingUnsupported
+        try: candidate = ContactSampler(self, target_body, force_epsilon_N)
+        except ContactSamplingUnsupported as error:
+            raise ValueError('接触采样暂不支持：'+str(error)) from error
+        self.contact_sampler = candidate
+        return self.contact_sampling_status()
+
+    def _invalidate_contacts(self, reason, availability='stale', reset_sequence=False, unbind=False):
+        if unbind:
+            self.contact_view_data = None
+            self.contact_view['enabled'] = False
+        if self.contact_sampler:
+            if unbind:
+                self.contact_sampler = None
+                self.contact_unavailable = {'enabled': False, 'availability': availability, 'reason': reason}
+            else: self.contact_sampler.invalidate(reason, availability, reset_sequence)
+
+    def contact_sampling_status(self):
+        return self.contact_sampler.status() if self.contact_sampler else dict(self.contact_unavailable)
+
+    def contact_sample(self):
+        return self.contact_sampler.sample() if self.contact_sampler else None
+
+    def configure_contact_view(self, enabled, contact_filter='target', forces=False):
+        self._require()
+        from .contact_overlay import validate_options
+        validate_options(contact_filter, forces)
+        if type(enabled) is not bool:
+            raise ValueError('无效的 P3 接触显示设置')
+        if enabled and self.contact_sampler is None:
+            self.configure_contacts()
+        self.contact_view = dict(enabled=enabled, contact_filter=contact_filter, forces=forces)
+        if not enabled:
+            self.contact_view_data = None
+        return dict(self.contact_view)
+
+    def _viewport_pose(self):
+        sampler = self.contact_sampler
+        if not self.contact_view['enabled'] or not sampler or sampler.latest is None:
+            return self.data, None
+        from .contact_overlay import restore_solver_pose
+        if self.contact_view_data is None:
+            self.contact_view_data = mujoco.MjData(self.model)
+        restore_solver_pose(self.model, self.contact_view_data, sampler.latest)
+        return self.contact_view_data, sampler.latest
 
     def set_joint(self, index, radians):
         self._require()
@@ -296,9 +377,66 @@ class Engine:
             raise ValueError('请先结束当前策略执行，再手动调整机械臂')
         radians = number(radians, -7, 7, 'Joint target')
         self.robot.set_target(index, radians)
+        self.jog = {'status': 'idle'}
         if self.mode == 'edit':
+            self._invalidate_contacts('robot_pose_edited')
             self.robot.edit_pose()
             self._set_checkpoint()
+
+    def jog_xyz(self, delta, frame='world'):
+        self._require()
+        if frame != 'world': raise ValueError('点动仅支持世界坐标系')
+        values = np.asarray(vector(delta, 3, -.01, .01, 'Jog delta'), dtype=float)
+        if np.count_nonzero(values) != 1 or np.linalg.norm(values) < .001-1e-9:
+            raise ValueError('点动须为单轴 1–10 mm')
+        if self.execution_runner and not self.execution_runner.closed:
+            raise ValueError('请先结束当前策略执行，再点动机械臂')
+        if self.jog['status'] == 'pending' or np.max(np.abs(self.robot.targets-self.data.qpos[self.robot.qadr])) > .015:
+            raise ValueError('请等待当前关节目标到达，再点动机械臂')
+        if not hasattr(self.robot, 'solve_translation'):
+            raise ValueError('当前机器人适配器不支持 XYZ 点动')
+        solution, goal = self.robot.solve_translation(values)
+        self.robot.targets[:] = solution
+        self.jog = {'status': 'pending', 'goal_world_m': goal.tolist(), 'started_sim_time': float(self.data.time)}
+        if self.mode == 'edit':
+            self._invalidate_contacts('robot_pose_edited')
+            self.robot.edit_pose()
+            self._set_checkpoint()
+            self.jog['status'] = 'reached'
+        return self.jog
+
+    def _update_jog(self):
+        if self.jog['status'] != 'pending': return
+        error = float(np.linalg.norm(self.data.site_xpos[self.robot.site]-self.jog['goal_world_m']))
+        self.jog['position_error_m'] = error
+        if error <= .001 and np.max(np.abs(self.data.qvel[self.robot.vadr])) < .05:
+            self.jog['status'] = 'reached'
+        elif self.data.time-self.jog['started_sim_time'] > 3.:
+            self.jog['status'] = 'stalled'
+            self.robot.targets[:] = self.data.qpos[self.robot.qadr]
+            self.robot.servo[:] = self.robot.targets
+
+    def open_replay(self, directory):
+        self._require()
+        if self.running or (self.execution_runner and not self.execution_runner.closed):
+            raise ValueError('请先暂停物理并结束策略，再打开状态回放')
+        from .state_replay import StateReplay
+        candidate = StateReplay(directory)
+        try: result = candidate.frame(0)
+        except Exception:
+            candidate.close()
+            raise
+        if self.replay: self.replay.close()
+        self.replay = candidate
+        return result
+
+    def replay_frame(self, index, **options):
+        if self.replay is None: raise ValueError('请先打开一条记录')
+        return self.replay.frame(index, **options)
+
+    def close_replay(self):
+        if self.replay: self.replay.close()
+        self.replay = None
 
     def set_gripper(self, opening):
         self._require()
@@ -306,6 +444,7 @@ class Engine:
             raise ValueError('请先结束当前策略执行，再手动调整夹爪')
         self.robot.opening = number(opening, 0, 1, 'Gripper opening')
         if self.mode == 'edit':
+            self._invalidate_contacts('gripper_pose_edited')
             self.robot.edit_pose()
             self._set_checkpoint()
 
@@ -372,6 +511,7 @@ class Engine:
         qa, va = self.model.jnt_qposadr[jid], self.model.jnt_dofadr[jid]
         self.data.qpos[qa:qa+7] = pos + euler_quat(rot).tolist()
         self.data.qvel[va:va+6] = 0
+        self._invalidate_contacts('object_pose_edited')
         mujoco.mj_forward(self.model, self.data)
         self._set_checkpoint()
 
@@ -417,7 +557,8 @@ class Engine:
         return {'loaded': True, 'running': self.running, 'mode': self.mode, 'time': float(self.data.time),
                 'contacts': int(self.data.ncon), 'selected': self.selected, 'robot': self.robot.state(),
                 'camera': self.camera_state(), 'execution':self.execution,
-                'policy':self.policy_status(),'last_episode':self.last_episode}
+                'policy':self.policy_status(),'last_episode':self.last_episode,'jog':self.jog,
+                'contact_sampling':self.contact_sampling_status(), 'contact_view':dict(self.contact_view)}
 
     def policy_status(self):
         from .policy import ModelStatus
@@ -455,20 +596,30 @@ class Engine:
         from .task_control import PolicyExecution
         if isinstance(max_steps,bool) or not isinstance(max_steps,int) or not 1<=max_steps<=1000: raise ValueError('策略步数应在 1–1000')
         if not self.vla: raise ValueError('请先配置 Mock 或 VLA 适配器')
+        self._invalidate_contacts('policy_runtime_not_supported', availability='unsupported')
+        self.jog = {'status': 'idle'}
         self.cancel_execution()
         self.execution_runner=PolicyExecution(self,max_steps)
         self.execution=self.execution_runner.status('准备观察输入')
         self.mode,self.running='simulate',True
         return self.execution
 
-    def start_grasp_test(self):
+    def start_grasp_test(self, record_contacts=False):
         self._require()
+        if not isinstance(record_contacts, bool):
+            raise ValueError('P3 接触记录配置仅接受布尔开关')
         from .task_control import ScriptedPickPlace
+        if record_contacts and self.contact_sampler is None:
+            self.configure_contacts()
+        if record_contacts and self.contact_sampler.profile.target_body != 'alphabet_soup_1_main':
+            raise ValueError('请先为当前汤罐启用接触采样，再记录 P3')
         self.cancel_execution()
+        self._invalidate_contacts('awaiting_native_physics_step', availability='not_sampled', reset_sequence=True)
+        self.jog = {'status': 'idle'}
         self.running=False
         self.last_episode=None
         self.execution={'kind':'scripted_self_test','status':'starting','phase':'正在初始化 P2 记录','is_vla':False,'official_success':None}
-        try: self.execution_runner=ScriptedPickPlace(self)
+        try: self.execution_runner=ScriptedPickPlace(self, record_contacts=record_contacts)
         except Exception as error:
             self.execution.update(status='failed',phase=str(error))
             raise
@@ -480,29 +631,41 @@ class Engine:
         self._require()
         self.running=False
         self.cancel_execution()
+        self._invalidate_contacts('execution_stopped')
+        self.jog = {'status': 'idle'}
         self.robot.targets[:]=self.data.qpos[self.robot.qadr]
         self.robot.servo[:]=self.robot.targets
         return self.state()
 
-    def camera_images(self):
-        """当前物理状态的同步双 RGB；不创建或执行策略。"""
+    def camera_rgb(self, data=None):
+        """Render both canonical RGB views from the supplied pose or live state."""
         self._require()
+        if data is None:
+            data = self.data
         images={}
         renderer=self.renderer
+        renderer._gl_context.make_current()
         old=(renderer._width,renderer._height,renderer._rect)
         try:
             # Square viewport, not a distorted resize of the editor's 3:2 view.
             renderer._width=renderer._height=224
             renderer._rect=mujoco.MjrRect(0,0,224,224)
             for name in ('agentview','robot0_eye_in_hand'):
-                renderer.update_scene(self.data,camera=name,scene_option=self.options)
+                renderer.update_scene(data,camera=name,scene_option=self.options)
                 # Canonical model-independent RGB: top-left origin, OpenCV axes.
                 # Training-specific flips/crops belong in the model adapter.
-                rgb=renderer.render()
-                buf=io.BytesIO(); Image.fromarray(rgb).save(buf,'JPEG',quality=90)
-                images[name]={'encoding':'jpeg_base64','width':224,'height':224,'origin':'top_left','data':base64.b64encode(buf.getvalue()).decode('ascii')}
+                images[name]=renderer.render()
         finally:
             renderer._width,renderer._height,renderer._rect=old
+        return images
+
+    def camera_images(self):
+        images = {}
+        for name, rgb in self.camera_rgb().items():
+            buf = io.BytesIO()
+            Image.fromarray(rgb).save(buf,'JPEG',quality=90)
+            images[name]={'encoding':'jpeg_base64','width':224,'height':224,'origin':'top_left',
+                          'data':base64.b64encode(buf.getvalue()).decode('ascii')}
         return images
 
     def policy_observation(self):
@@ -517,13 +680,15 @@ class Engine:
                 'proprio':state['eef_position']+(axis*angle).tolist()+state['gripper_qpos'],
                 'joints':state['qpos'],'calibration':self.camera_calibration()}
 
-    def camera_calibration(self):
+    def camera_calibration(self, data=None):
+        if data is None:
+            data = self.data
         result={}
         for name in ('agentview','robot0_eye_in_hand'):
             i=self.model.camera(name).id
             f=112/math.tan(math.radians(float(self.model.cam_fovy[i]))/2)
-            rotation=self.data.cam_xmat[i].reshape(3,3)@np.diag([1.,-1.,-1.])
-            transform=np.eye(4); transform[:3,:3]=rotation; transform[:3,3]=self.data.cam_xpos[i]
+            rotation=data.cam_xmat[i].reshape(3,3)@np.diag([1.,-1.,-1.])
+            transform=np.eye(4); transform[:3,:3]=rotation; transform[:3,3]=data.cam_xpos[i]
             result[name]={'K':[[f,0,111.5],[0,f,111.5],[0,0,1]],'T_world_camera':transform.tolist(),
                           'image_rotation_deg':0,'units':'m','convention':'x-right,y-down,z-forward'}
         return result
@@ -561,9 +726,10 @@ class Engine:
     def pick(self, x, y):
         self._require()
         x, y = number(x, 0, 1, 'Pick x'), number(y, 0, 1, 'Pick y')
-        self.renderer.update_scene(self.data, camera=self.camera, scene_option=self.options)
+        pose, _ = self._viewport_pose()
+        self.renderer.update_scene(pose, camera=self.camera, scene_option=self.options)
         point, geom, skin = np.zeros(3), np.zeros(1, dtype=np.int32), np.zeros(1, dtype=np.int32)
-        bid = mujoco.mjv_select(self.model, self.data, self.options, self.width/self.height, x, 1-y,
+        bid = mujoco.mjv_select(self.model, pose, self.options, self.width/self.height, x, 1-y,
                                 self.renderer.scene, point, geom, skin)
         if bid <= 0:
             self.selected = None
@@ -572,12 +738,19 @@ class Engine:
 
     def render(self):
         self._require()
-        self.renderer.update_scene(self.data, camera=self.camera, scene_option=self.options)
+        pose, sample = self._viewport_pose()
+        self.rendered_contacts = None
+        self.renderer._gl_context.make_current()
+        self.renderer.update_scene(pose, camera=self.camera, scene_option=self.options)
         if self.axes:
             self._axes([0, 0, .005], .13)
             if self.selected:
                 bid = self.model.body(self.selected).id
-                self._axes(self.data.xpos[bid], .09)
+                self._axes(pose.xpos[bid], .09)
+        if sample is not None:
+            from .contact_overlay import draw_contacts
+            self.rendered_contacts = draw_contacts(self.renderer.scene, sample,
+                                                   self.contact_view['contact_filter'], self.contact_view['forces'])
         return self.renderer.render()
 
     def _axes(self, origin, length):
@@ -659,6 +832,10 @@ class Engine:
 
     def close(self,preserve_vla=False):
         self.running = False
+        self.close_replay()
+        self.contact_view_data = None
+        self.contact_sampler = None
+        self.contact_unavailable = {'enabled': False, 'availability': 'disabled', 'reason': 'backend_closed'}
         self.cancel_execution()
         if self.vla and not preserve_vla:
             self.vla.close(); self.vla=None

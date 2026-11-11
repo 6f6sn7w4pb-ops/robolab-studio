@@ -88,6 +88,39 @@ class PandaJointAdapter:
             raise ValueError('Joint target exceeds model limits')
         self.targets[index] = radians
 
+    def solve_translation(self, delta):
+        """World-frame translation with measured orientation held fixed.
+
+        Solve on private data, then validate convergence and limits before the
+        caller commits anything. This is kinematic reachability, not a collision
+        planner. Physical motion still goes through apply_control().
+        """
+        scratch = mujoco.MjData(self.model)
+        scratch.qpos[:] = self.data.qpos
+        origin = self.data.site_xpos[self.site].copy()
+        goal = origin + np.asarray(delta, dtype=float)
+        rotation = self.data.site_xmat[self.site].reshape(3, 3).copy()
+        jp = np.zeros((3, self.model.nv)); jr = np.zeros_like(jp)
+        for _ in range(160):
+            mujoco.mj_forward(self.model, scratch)
+            current = scratch.site_xmat[self.site].reshape(3, 3)
+            orientation = .5*np.cross(current.T, rotation.T).sum(axis=0)
+            translation = goal-scratch.site_xpos[self.site]
+            if np.linalg.norm(translation) <= .00025 and np.linalg.norm(orientation) <= .002:
+                solution = scratch.qpos[self.qadr].copy()
+                if (np.any(solution < self.limits[:, 0]) or np.any(solution > self.limits[:, 1])
+                        or np.max(np.abs(solution-self.data.qpos[self.qadr])) > .25):
+                    break
+                return solution, goal
+            mujoco.mj_jacSite(self.model, scratch, jp, jr, self.site)
+            jac = np.r_[jp[:, self.vadr], .5*jr[:, self.vadr]]
+            error = np.r_[translation, .5*orientation]
+            dq = jac.T @ np.linalg.solve(jac@jac.T + .00001*np.eye(6), error)
+            scratch.qpos[self.qadr] = np.clip(
+                scratch.qpos[self.qadr]+np.clip(dq, -.04, .04),
+                self.limits[:, 0]+1e-6, self.limits[:, 1]-1e-6)
+        raise ValueError('点动目标不可达或受关节限制；未修改目标')
+
     def edit_pose(self):
         self.data.qpos[self.qadr] = self.targets
         self.data.qvel[self.vadr] = 0
@@ -122,6 +155,34 @@ class PandaJointAdapter:
                 'targets': self.targets.tolist(), 'limits': self.limits.tolist(),
                 'gripper_qpos': self.data.qpos[self.gq].tolist(), 'gripper_target': self.opening,
                 'eef_position': self.data.site_xpos[self.site].tolist(), 'eef_quaternion_wxyz': quat.tolist()}
+
+class PandaPoseIK:
+    """Incremental pose targets for the native rate-limited Panda PD controller."""
+    def __init__(self, robot):
+        self.robot = robot
+        self.scratch = mujoco.MjData(robot.model)
+        self.jp = np.zeros((3, robot.model.nv))
+        self.jr = np.zeros_like(self.jp)
+
+    def update(self, position, rotation):
+        r = self.robot
+        model, scratch = r.model, self.scratch
+        scratch.qpos[:] = r.data.qpos
+        scratch.qpos[r.qadr] = r.targets
+        for _ in range(12):
+            mujoco.mj_forward(model, scratch)
+            current = scratch.site_xmat[r.site].reshape(3, 3)
+            er = .5*np.cross(current.T, rotation.T).sum(axis=0)
+            error = np.r_[position-scratch.site_xpos[r.site], er*.5]
+            if np.linalg.norm(error) < .0005:
+                break
+            mujoco.mj_jacSite(model, scratch, self.jp, self.jr, r.site)
+            jac = np.r_[self.jp[:, r.vadr], self.jr[:, r.vadr]*.5]
+            delta = jac.T @ np.linalg.solve(jac @ jac.T+.0001*np.eye(6), error)
+            scratch.qpos[r.qadr] = np.clip(scratch.qpos[r.qadr]+np.clip(delta, -.08, .08),
+                                         r.limits[:, 0]+.01, r.limits[:, 1]-.01)
+        r.targets[:] = scratch.qpos[r.qadr]
+
 
 ROBOT_ADAPTERS = {'panda_joint_pd': PandaJointAdapter}
 

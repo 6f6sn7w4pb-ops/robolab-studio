@@ -1,0 +1,471 @@
+{
+  "$defs": {
+    "CameraCalibration": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "enum": [
+            "agentview",
+            "robot0_eye_in_hand"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "K": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "K",
+          "type": "array"
+        },
+        "T_world_camera": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "type": "array"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "T World Camera",
+          "type": "array"
+        },
+        "image_width": {
+          "const": 224
+        },
+        "image_height": {
+          "const": 224
+        },
+        "calibration_only": {
+          "const": true,
+          "title": "Calibration Only",
+          "type": "boolean"
+        },
+        "convention": {
+          "const": "x-right,y-down,z-forward"
+        },
+        "units": {
+          "const": "m"
+        },
+        "image_rotation_deg": {
+          "const": 0
+        }
+      },
+      "required": [
+        "name",
+        "K",
+        "T_world_camera",
+        "image_width",
+        "image_height",
+        "calibration_only",
+        "convention",
+        "units",
+        "image_rotation_deg"
+      ],
+      "title": "CameraCalibration",
+      "type": "object"
+    },
+    "Contact": {
+      "additionalProperties": false,
+      "properties": {
+        "contact_index": {
+          "minimum": 0,
+          "title": "Contact Index",
+          "type": "integer"
+        },
+        "geom1_id": {
+          "minimum": 0,
+          "title": "Geom1 Id",
+          "type": "integer"
+        },
+        "geom2_id": {
+          "minimum": 0,
+          "title": "Geom2 Id",
+          "type": "integer"
+        },
+        "geom1_name": {
+          "title": "Geom1 Name",
+          "type": "string"
+        },
+        "geom2_name": {
+          "title": "Geom2 Name",
+          "type": "string"
+        },
+        "finger": {
+          "enum": [
+            "finger_1",
+            "finger_2"
+          ],
+          "title": "Finger",
+          "type": "string"
+        },
+        "finger_geom_name": {
+          "title": "Finger Geom Name",
+          "type": "string"
+        },
+        "other_geom_name": {
+          "title": "Other Geom Name",
+          "type": "string"
+        },
+        "pair_role": {
+          "enum": [
+            "finger_target",
+            "finger_environment",
+            "finger_distractor",
+            "finger_robot_other"
+          ],
+          "title": "Pair Role",
+          "type": "string"
+        },
+        "surface_region": {
+          "enum": [
+            "pad",
+            "other_finger"
+          ],
+          "title": "Surface Region",
+          "type": "string"
+        },
+        "position_role": {
+          "const": "solver_midpoint",
+          "title": "Position Role",
+          "type": "string"
+        },
+        "position_world_m": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Position World M",
+          "type": "array"
+        },
+        "position_gripper_m": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Position Gripper M",
+          "type": "array"
+        },
+        "normal_world_finger_to_other": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Normal World Finger To Other",
+          "type": "array"
+        },
+        "normal_gripper_finger_to_other": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Normal Gripper Finger To Other",
+          "type": "array"
+        },
+        "native_contact_frame_rows": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Native Contact Frame Rows",
+          "type": "array"
+        },
+        "native_wrench_contact": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 6,
+          "minItems": 6,
+          "title": "Native Wrench Contact",
+          "type": "array"
+        },
+        "force_on_other_world_N": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Force On Other World N",
+          "type": "array"
+        },
+        "force_on_other_gripper_N": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Force On Other Gripper N",
+          "type": "array"
+        },
+        "normal_force_N": {
+          "minimum": 0,
+          "title": "Normal Force N",
+          "type": "number"
+        },
+        "distance_m": {
+          "title": "Distance M",
+          "type": "number"
+        },
+        "exclude": {
+          "maximum": 3,
+          "minimum": 0,
+          "title": "Exclude",
+          "type": "integer"
+        },
+        "efc_address": {
+          "minimum": -1,
+          "title": "Efc Address",
+          "type": "integer"
+        },
+        "contact_dimension": {
+          "enum": [
+            1,
+            3,
+            4,
+            6
+          ]
+        },
+        "constraint_active": {
+          "title": "Constraint Active",
+          "type": "boolean"
+        },
+        "load_bearing": {
+          "title": "Load Bearing",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "contact_index",
+        "geom1_id",
+        "geom2_id",
+        "geom1_name",
+        "geom2_name",
+        "finger",
+        "finger_geom_name",
+        "other_geom_name",
+        "pair_role",
+        "surface_region",
+        "position_role",
+        "position_world_m",
+        "position_gripper_m",
+        "normal_world_finger_to_other",
+        "normal_gripper_finger_to_other",
+        "native_contact_frame_rows",
+        "native_wrench_contact",
+        "force_on_other_world_N",
+        "force_on_other_gripper_N",
+        "normal_force_N",
+        "distance_m",
+        "exclude",
+        "efc_address",
+        "contact_dimension",
+        "constraint_active",
+        "load_bearing"
+      ],
+      "title": "Contact",
+      "type": "object"
+    },
+    "SolverState": {
+      "additionalProperties": false,
+      "properties": {
+        "phase": {
+          "const": "solver_input_state",
+          "title": "Phase",
+          "type": "string"
+        },
+        "qpos": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 1024,
+          "minItems": 1,
+          "title": "Qpos",
+          "type": "array"
+        },
+        "qvel": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 1024,
+          "minItems": 1,
+          "title": "Qvel",
+          "type": "array"
+        },
+        "ctrl_native": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 128,
+          "title": "Ctrl Native",
+          "type": "array"
+        }
+      },
+      "required": [
+        "phase",
+        "qpos",
+        "qvel",
+        "ctrl_native"
+      ],
+      "title": "SolverState",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "robolab.p3_contact_frame.v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "record_origin": {
+      "const": "native_euler_step"
+    },
+    "episode_id": {
+      "minLength": 1,
+      "title": "Episode Id",
+      "type": "string"
+    },
+    "p2_trajectory_row_index": {
+      "minimum": 1,
+      "title": "P2 Trajectory Row Index",
+      "type": "integer"
+    },
+    "sampling_mode": {
+      "const": "control_tail_substep",
+      "title": "Sampling Mode",
+      "type": "string"
+    },
+    "integrator": {
+      "const": "Euler",
+      "title": "Integrator",
+      "type": "string"
+    },
+    "solver_step_start_time_s": {
+      "minimum": 0,
+      "title": "Solver Step Start Time S",
+      "type": "number"
+    },
+    "state_after_step_time_s": {
+      "minimum": 0,
+      "title": "State After Step Time S",
+      "type": "number"
+    },
+    "physics_dt_s": {
+      "exclusiveMinimum": 0,
+      "title": "Physics Dt S",
+      "type": "number"
+    },
+    "force_epsilon_N": {
+      "minimum": 0,
+      "title": "Force Epsilon N",
+      "type": "number"
+    },
+    "reference_site": {
+      "minLength": 1,
+      "title": "Reference Site",
+      "type": "string"
+    },
+    "T_world_gripper": {
+      "items": {
+        "items": {
+          "type": "number"
+        },
+        "maxItems": 4,
+        "minItems": 4,
+        "type": "array"
+      },
+      "maxItems": 4,
+      "minItems": 4,
+      "title": "T World Gripper",
+      "type": "array"
+    },
+    "state_at_solver": {
+      "$ref": "#/$defs/SolverState"
+    },
+    "target_body": {
+      "title": "Target Body",
+      "type": "string"
+    },
+    "camera_calibration": {
+      "items": {
+        "$ref": "#/$defs/CameraCalibration"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "title": "Camera Calibration",
+      "type": "array"
+    },
+    "original_rgb_recorded": {
+      "const": false,
+      "title": "Original Rgb Recorded",
+      "type": "boolean"
+    },
+    "scene_contact_count": {
+      "minimum": 0,
+      "title": "Scene Contact Count",
+      "type": "integer"
+    },
+    "contacts": {
+      "items": {
+        "$ref": "#/$defs/Contact"
+      },
+      "title": "Contacts",
+      "type": "array"
+    },
+    "sample_index": {
+      "minimum": 0,
+      "title": "Sample Index",
+      "type": "integer"
+    },
+    "profile_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "schema",
+    "record_origin",
+    "episode_id",
+    "sample_index",
+    "p2_trajectory_row_index",
+    "sampling_mode",
+    "integrator",
+    "solver_step_start_time_s",
+    "state_after_step_time_s",
+    "physics_dt_s",
+    "force_epsilon_N",
+    "reference_site",
+    "T_world_gripper",
+    "state_at_solver",
+    "target_body",
+    "camera_calibration",
+    "original_rgb_recorded",
+    "scene_contact_count",
+    "contacts",
+    "profile_sha256"
+  ],
+  "title": "ContactFrame",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:robolab:p3-contact-frame:v1",
+  "$comment": "Persisted P3-B frame. P2 association, dimensions and finite values are validated by contact_store.py."
+}
