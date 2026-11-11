@@ -14,6 +14,12 @@ fi
 case "${1:-}" in
   --doctor) exec python3 scripts/check_runtime.py ;;
   --baseline-doctor) exec "$ROBOLAB_BACKEND_PYTHON" scripts/doctor.py ;;
+  --p3a-test) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/verify_p3_contacts.py "$@" ;;
+  --p3b-test) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/verify_p3_recording.py "$@" ;;
+  --p3c-test) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/verify_p3_view.py "$@" ;;
+  --p4a-test) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/verify_p4_parts.py "$@" ;;
+  --p4b-pilot) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/run_p4_pilot.py "$@" ;;
+  --p4c-osc) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/verify_p4_osc.py "$@" ;;
 esac
 if [ ! -x .venv/bin/python ]; then
   echo 'Missing GUI environment. Run scripts/setup.sh first.' >&2
@@ -25,6 +31,8 @@ case "${1:-}" in
   --p1-test) exec .venv/bin/python -m robolab.qa_p1_gui ;;
   --language-test) exec .venv/bin/python -m robolab.qa_language_gui ;;
   --p2-test) exec .venv/bin/python -m robolab.qa_p2_gui ;;
+  --p2-batch2-test) exec .venv/bin/python -m robolab.qa_p2_batch2_gui ;;
+  --p3c-gui-test) shift; exec .venv/bin/python -m robolab.qa_p3c_gui "$@" ;;
   --smoke) exec .venv/bin/python -m robolab.qa_gui --smoke ;;
   '') python3 scripts/check_runtime.py --gui; exec .venv/bin/python -m robolab ;;
   *) echo "Unknown option: $1" >&2; exit 2 ;;

@@ -164,6 +164,20 @@ Windows 也可以运行 `Start-RoboLab.ps1 -SelfTest` 或 `Launch RoboLab Studio
 
 0.2 策略 / Mock / 规则抓取桌面回归：`bash scripts/launch.sh --policy-test`。新的执行和状态说明见 [VLA_INTEGRATION.md](docs/VLA_INTEGRATION.md)。
 
+P2 第二批：机械臂页提供保持当前姿态的世界坐标 XYZ 点动（1–10 mm）；中央“P2 记录 / 状态查看”可浏览历史结果及 v2 采样场景状态，v1 只显示原始结果。操作、格式边界与初态实测见 [P2_BATCH2_REPORT.md](docs/P2_BATCH2_REPORT.md)。桌面验收入口为 `bash scripts/launch.sh --p2-batch2-test`。
+
+P3 A 批已接入原生 Euler PD 接触采样、指垫身份及夹爪坐标转换。运行 `bash scripts/launch.sh --p3a-test` 验证真实采样与坐标，`--quick` 仅检查能力及单步。见 [A 批报告](docs/P3_A_REPORT.md)。
+
+P3 B 批已支持接触附属记录、校验和旧 P2 记录兼容。运行 `bash scripts/launch.sh --p3b-test --output-dir outputs/p3b_check` 做读写验收。见 [B 批报告](docs/P3_B_REPORT.md)。
+
+P3 C 批在「三维场景」提供实时接触预览，在「策略 / 自检」可勾选同时保存 P3 记录。带有效帧的历史记录可切换到接触采样状态，查看桌面、腕部及半透明近景。两种预览读取原始接触样本并重建对应位姿。同步原始 RGB 和部位标签属于 P4。见 [C 批报告](docs/P3_C_REPORT.md)。
+
+P4 A 批在「P4 部位抓取」提供独立规则抓取，可选粗端或细端，保存求解器采样时刻的双 RGB、接触及部位标签。使用 `bash scripts/launch.sh --p4a-test --output-dir outputs/p4a_check` 可复现两条指令和错部位对照。见 [P4 A 批报告](docs/P4_A_REPORT.md)。
+
+P4 B 批新增三类几何、按形状族留出的试采、最近障碍表面点及观测 7 维运动。运行 `bash scripts/launch.sh --p4b-pilot --output-dir outputs/p4b_check` 生成 24 条配对任务与 1 条阻挡对照。在「P4 部位抓取」打开「P4 试采汇总」查看生成的 `result.json`。动作仍由关节 PD 执行，OSC 采集待闭环验证。见 [P4 B 批报告](docs/P4_B_REPORT.md)。
+
+P4 C 批用原版 robosuite Panda OSC 执行并记录归一化 7 维指令，绑定 20 Hz 双 RGB、原生接触和独立物理复执行。运行 `bash scripts/launch.sh --p4c-osc --output-dir outputs/p4c_check`。试采汇总也可读取生成的 OSC `result.json`。见 [P4 C 批报告](docs/P4_C_REPORT.md)。
+
 ## 当前边界
 
 - 本次实际场景测试覆盖 LIBERO-Object 的第 0、1 个任务。其他 suite 的任务列表可读取，其全部场景还未逐一验证。
