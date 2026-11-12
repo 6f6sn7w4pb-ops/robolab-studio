@@ -13,10 +13,10 @@
 cd /home/openvla/projects/robolab-studio
 bash scripts/launch.sh
 bash scripts/launch.sh --p3c-test --output-dir outputs/p3c_check
-bash scripts/launch.sh --p3c-gui-test --matrix-dir outputs/p3c_check --output-dir outputs/p3c_gui_check
+bash scripts/launch.sh --p3c-gui-test --output-dir outputs/p3c_gui_check
 ```
 
-两个验收输出目录均须为新路径。验收代码及页面支持中英文切换。
+两个验收输出目录均须为新路径。GUI 验收默认使用 `outputs/` 下最新一份通过的后端矩阵（历史记录目录须仍存在），也可用 `--matrix-dir` 指定。验收代码及页面支持中英文切换。
 
 ## 时序与范围
 

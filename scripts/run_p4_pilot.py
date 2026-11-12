@@ -2,7 +2,6 @@
 import argparse
 from collections import Counter, defaultdict
 import hashlib
-import json
 import os
 from pathlib import Path
 import signal
