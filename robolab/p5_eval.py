@@ -270,12 +270,20 @@ def export_case_index(dataset_root):
     return index
 
 
+def _quat_to_mat(quat):
+    """Same formula as MuJoCo's mju_quat2Mat (w, x, y, z), so metrics need NumPy only."""
+    w, x, y, z = (float(v) for v in quat)
+    if (w, x, y, z) == (1., 0., 0., 0.):
+        return np.eye(3)
+    ww, xx, yy, zz = w*w, x*x, y*y, z*z
+    wx, wy, wz, xy, xz, yz = w*x, w*y, w*z, x*y, x*z, y*z
+    return np.array([[ww+xx-yy-zz, 2*(xy-wz), 2*(xz+wy)],
+                     [2*(xy+wz), ww-xx+yy-zz, 2*(yz-wx)],
+                     [2*(xz-wy), 2*(yz+wx), ww-xx-yy+zz]])
+
+
 def _rotation_deg(model_quat_ref, quat):
-    import mujoco
-    a, b = np.zeros(9), np.zeros(9)
-    mujoco.mju_quat2Mat(a, np.asarray(model_quat_ref, float))
-    mujoco.mju_quat2Mat(b, np.asarray(quat, float))
-    cosine = (np.trace(a.reshape(3, 3).T @ b.reshape(3, 3))-1)/2
+    cosine = (np.trace(_quat_to_mat(model_quat_ref).T @ _quat_to_mat(quat))-1)/2
     return float(np.degrees(np.arccos(np.clip(cosine, -1., 1.))))
 
 
