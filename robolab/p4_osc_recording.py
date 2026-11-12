@@ -37,7 +37,12 @@ def _initial(engine):
     return dict(qpos=data.qpos.tolist(), qvel=data.qvel.tolist(), ctrl=data.ctrl.tolist())
 
 
-def run_osc_episode(engine, directory, scene, part):
+def run_osc_episode(engine, directory, scene, part, instruction=None):
+    """Record one teacher episode; ``instruction`` overrides the default prompt for dataset plans."""
+    if instruction is None:
+        instruction = dict(part=part, en=INSTRUCTIONS[part][0], zh=INSTRUCTIONS[part][1])
+    elif instruction.get('part') != part:
+        raise ValueError('Instruction part differs from the requested part')
     directory.mkdir(parents=True, exist_ok=False)
     (directory/'rgb').mkdir()
     osc = _load_scene(engine, scene)
@@ -54,8 +59,7 @@ def run_osc_episode(engine, directory, scene, part):
                     control_period_s=OSC_PERIOD_S, physics_substeps=osc.substeps,
                     physics_dt_s=float(engine.model.opt.timestep), sampling_mode=SAMPLING_MODE,
                     mujoco_version=mujoco.__version__, robosuite_version='1.4.1',
-                    instruction=dict(part=part, en=INSTRUCTIONS[part][0], zh=INSTRUCTIONS[part][1]),
-                    initial=_initial(engine), baseline_z_m=baseline_z)
+                    instruction=dict(instruction), initial=_initial(engine), baseline_z_m=baseline_z)
     publish_json(manifest_path, manifest)
     shadow = mujoco.MjData(engine.model)
     count = 0

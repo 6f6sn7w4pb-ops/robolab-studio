@@ -72,7 +72,7 @@ class PartGraspPanel(QWidget):
         language_manager().changed.connect(self._show_summary)
 
     def choose_pilot(self):
-        path, _ = QFileDialog.getOpenFileName(self, tr('选择 P4 试采或 OSC 验收结果'),
+        path, _ = QFileDialog.getOpenFileName(self, tr('选择 P4 试采、OSC 验收或数据集结果'),
                                                str(ROOT/'outputs'/'p4b_pilot'/'result.json'), 'JSON (*.json)')
         if path:
             self.open_pilot(Path(path))

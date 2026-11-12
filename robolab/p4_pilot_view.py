@@ -11,22 +11,25 @@ from .p1_panel import open_directory
 
 PILOT_INDEX = 'robolab.p4_pilot_index.v1'
 OSC_INDEX = 'robolab.p4_osc_audit.v1'
+DATASET_INDEX = 'robolab.p4_dataset_index.v1'
+LIMITS = {PILOT_INDEX: (1_000_000, 25), OSC_INDEX: (1_000_000, 25), DATASET_INDEX: (8_000_000, 1000)}
 SPLITS = {'train':'训练划分', 'validation':'验证划分', 'test_unseen':'未见形状族', 'control':'物理对照',
-          'osc_check':'OSC 闭环'}
+          'osc_check':'OSC 闭环', 'test_instance':'已见形状族新实例'}
 PARTS = {'thick':'粗端', 'thin':'细端'}
 STATE = {'recording':'采集中', 'finalized':'已结束', 'cancelled':'已取消', 'verification_error':'校验出错'}
 
 
 def read_pilot_index(path):
     with path.open('rb') as stream:
-        payload = stream.read(1_000_001)
-    if len(payload) > 1_000_000:
-        raise ValueError('P4 pilot index exceeds 1 MB')
+        payload = stream.read(max(size for size, _ in LIMITS.values())+1)
     data = json.loads(payload)
-    if data.get('schema') not in (PILOT_INDEX, OSC_INDEX) or data.get('status') not in STATE:
+    if data.get('schema') not in LIMITS or data.get('status') not in STATE:
         raise ValueError('Invalid P4 results index')
+    max_bytes, max_runs = LIMITS[data['schema']]
+    if len(payload) > max_bytes:
+        raise ValueError('P4 results index is too large')
     runs = data.get('runs')
-    if not isinstance(runs, list) or len(runs) > 25:
+    if not isinstance(runs, list) or len(runs) > max_runs:
         raise ValueError('Invalid P4 pilot runs')
     for run in runs:
         if (run['split'] not in SPLITS or run['part'] not in PARTS
@@ -46,9 +49,10 @@ class PilotSummary(QDialog):
         super().__init__(parent)
         self.path = path
         self.data = read_pilot_index(path)
-        self.is_osc = self.data['schema'] == OSC_INDEX
+        self.is_dataset = self.data['schema'] == DATASET_INDEX
+        self.is_osc = self.data['schema'] in (OSC_INDEX, DATASET_INDEX)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        self.resize(860, 550)
+        self.resize(1010 if self.is_dataset else 860, 550)
         layout = QVBoxLayout(self)
         self.status = QLabel()
         self.status.setWordWrap(True)
@@ -72,19 +76,30 @@ class PilotSummary(QDialog):
         self.refresh()
 
     def refresh(self, *_):
-        set_text(self, 'P4 OSC 验收' if self.is_osc else 'P4 试采汇总', method='setWindowTitle')
+        title = 'P4 OSC 数据集' if self.is_dataset else 'P4 OSC 验收' if self.is_osc else 'P4 试采汇总'
+        set_text(self, title, method='setWindowTitle')
         set_text(self.open_record, '打开结果目录')
         runs = self.data['runs']
         indexed = [run for run in runs if run['split'] != 'control']
         successes = sum(run['files_verified'] and run.get('outcome', {}).get('passed') is True for run in indexed)
         controls = len(runs)-len(indexed)
-        template = ('OSC 验收状态：{state} · 任务通过 {passed}/{total} · 独立物理对照 {controls} 条'
-                    if self.is_osc else '试采状态：{state} · 任务通过 {passed}/{total} · 独立物理对照 {controls} 条')
-        set_text(self.status, template,
-                 state=tr(STATE[self.data['status']]), passed=successes, total=len(indexed), controls=controls)
-        self.table.setHeaderLabels([tr('场景'), tr('用途' if self.is_osc else '划分'), tr('指定部位'),
-                                    tr('实际夹持'), tr('结果'), tr('双 RGB 对数')])
-        for index, size in enumerate((175, 125, 90, 105, 110, 85)):
+        if self.is_dataset:
+            expected = sum(run['files_verified'] and run.get('expected_outcome_verified') is True
+                           for run in runs if run['split'] == 'control')
+            set_text(self.status, '数据集状态：{state} · 演示通过 {passed}/{total} · 阻挡对照按预期失败 {expected}/{controls} · '
+                     '已复执行校验 {verified}/{planned}', state=tr(STATE[self.data['status']]), passed=successes,
+                     total=len(indexed), expected=expected, controls=controls,
+                     verified=sum(run['files_verified'] for run in runs), planned=len(runs))
+        else:
+            template = ('OSC 验收状态：{state} · 任务通过 {passed}/{total} · 独立物理对照 {controls} 条'
+                        if self.is_osc else '试采状态：{state} · 任务通过 {passed}/{total} · 独立物理对照 {controls} 条')
+            set_text(self.status, template,
+                     state=tr(STATE[self.data['status']]), passed=successes, total=len(indexed), controls=controls)
+        self.table.setHeaderLabels([tr('场景'), tr('用途' if self.is_osc and not self.is_dataset else '划分'),
+                                    tr('指定部位'), tr('实际夹持'), tr('结果'), tr('双 RGB 对数')])
+        # Dataset scene ids are longer (family-split-index), so that view gets wider columns.
+        widths = (265, 165, 120, 105, 110, 85) if self.is_dataset else (175, 125, 90, 105, 110, 85)
+        for index, size in enumerate(widths):
             self.table.setColumnWidth(index, size)
         selection = self.table.indexOfTopLevelItem(self.table.currentItem())
         self.table.clear()
@@ -111,6 +126,8 @@ class PilotSummary(QDialog):
             self.detail.clear()
         else:
             text = run.get('instruction', {}).get(language_manager().language, '')+'\n'+run['path']
+            if self.is_dataset and run.get('failure_reasons'):
+                text += '\n'+tr('未通过原因：{reasons}', reasons=', '.join(run['failure_reasons']))
             replay = run.get('replay')
             if self.is_osc and run['files_verified'] and replay:
                 text += '\n'+tr('已复执行 {ticks} 个 OSC 动作 · 最大 qpos 差 {error:g}',

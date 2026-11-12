@@ -308,7 +308,6 @@
   "P4 运行未完成，请查看本次日志。": "The P4 run did not complete. See the run log.",
   "P4 进程已停止，记录可能尚未完整结束。": "The P4 process has stopped. The record may be incomplete.",
   "P4 试采汇总": "P4 pilot summary",
-  "选择 P4 试采或 OSC 验收结果": "Select P4 pilot or OSC verification results",
   "无法读取 P4 试采结果。": "Could not read the P4 pilot results.",
   "试采状态：{state} · 任务通过 {passed}/{total} · 独立物理对照 {controls} 条": "Pilot status: {state} · Task passes {passed}/{total} · Separate physical controls {controls}",
   "训练划分": "Train",
@@ -329,5 +328,10 @@
   "OSC 闭环": "OSC closed loop",
   "用途": "Purpose",
   "OSC 验收状态：{state} · 任务通过 {passed}/{total} · 独立物理对照 {controls} 条": "OSC verification: {state} · Task passes {passed}/{total} · Separate physical controls {controls}",
-  "已复执行 {ticks} 个 OSC 动作 · 最大 qpos 差 {error:g}": "Re-executed {ticks} OSC actions · Max qpos difference {error:g}"
+  "已复执行 {ticks} 个 OSC 动作 · 最大 qpos 差 {error:g}": "Re-executed {ticks} OSC actions · Max qpos difference {error:g}",
+  "P4 OSC 数据集": "P4 OSC dataset",
+  "已见形状族新实例": "Seen family, new instance",
+  "数据集状态：{state} · 演示通过 {passed}/{total} · 阻挡对照按预期失败 {expected}/{controls} · 已复执行校验 {verified}/{planned}": "Dataset: {state} · Demonstrations passed {passed}/{total} · Blocked controls failed as expected {expected}/{controls} · Replay-verified {verified}/{planned}",
+  "未通过原因：{reasons}": "Failure reasons: {reasons}",
+  "选择 P4 试采、OSC 验收或数据集结果": "Select P4 pilot, OSC verification or dataset results"
 }
