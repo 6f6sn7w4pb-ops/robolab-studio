@@ -156,6 +156,10 @@ class PartWaypoints:
                 if self.align_yaw:
                     longitudinal = self.engine.data.xmat[self.target_body].reshape(3, 3)[:2, 0]
                     x, y = longitudinal/np.linalg.norm(longitudinal)
+                    if x < 0:
+                        # The two-finger hand is symmetric about its approach axis; use the
+                        # equivalent yaw nearest the default so any object heading stays reachable.
+                        x, y = -x, -y
                     self.rotation = np.array([[-y, x, 0.], [x, y, 0.], [0., 0., -1.]])
                 self.goals = (None, center+[0, 0, .17], center+[0, 0, .004], center+[0, 0, .004],
                               center+[0, 0, .17], center+[0, 0, .17])

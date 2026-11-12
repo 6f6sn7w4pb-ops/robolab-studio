@@ -178,13 +178,15 @@ P4 B 批新增三类几何、按形状族留出的试采、最近障碍表面点
 
 P4 C 批用原版 robosuite Panda OSC 执行并记录归一化 7 维指令，绑定 20 Hz 双 RGB、原生接触和独立物理复执行。运行 `bash scripts/launch.sh --p4c-osc --output-dir outputs/p4c_check`。试采汇总也可读取生成的 OSC `result.json`。见 [P4 C 批报告](docs/P4_C_REPORT.md)。
 
+P4 D 批生成首版 OSC 数据集：按 seed 确定的 100 个场景 × 粗端/细端 = 200 条，外加 4 条阻挡对照。物体朝向覆盖整圈，按形状族和实例划分，并做泄漏审计；每条都经过精确复执行，抽样重新采集后逐字节比对；最后导出 LIBERO 风格的 HDF5 训练视图和只用训练集计算的归一化统计。运行 `bash scripts/launch.sh --p4d-dataset --workers 2 --output-dir outputs/p4d_check`（每个采集进程约占 2.7 GB 内存），再运行 `bash scripts/launch.sh --p4d-export --dataset outputs/p4d_check`。中断后可加 `--resume` 续跑，`--reindex` 只用已有文件重建索引。「P4 试采汇总」也能打开数据集的 `result.json`。格式见 [P4 数据集格式](docs/P4_DATASET_FORMAT.md)，验收见 [P4 D 批报告](docs/P4_D_REPORT.md)。
+
 ## 当前边界
 
 - 本次实际场景测试覆盖 LIBERO-Object 的第 0、1 个任务。其他 suite 的任务列表可读取，其全部场景还未逐一验证。
 - 原始 LIBERO 网格资产受到保护；仅支持位姿编辑。完整的删除、缩放、质量和碰撞编辑针对编辑器新增的基础物体。
 - 场景变换通过数字属性应用；未提供鼠标拖拽变换手柄、撤销栈或网格建模工具。
 - 任务切换需要初始化渲染资源，界面不阻塞，但仍有等待时间。
-- 已有独立双相机实时预览及 P1 离屏验证，并为策略输入附带仿真相机几何参数；P2 已有规则抓取轨迹记录和双指接触布尔值。实机标定工具、STL/OBJ 导入、深度/分割、接触点/法向/力标注、完整回放和真实硬件接入仍未实现。
+- 已有双相机实时预览、P1 离屏验证、P2 规则抓取记录、P3 指尖接触点/法向/力及夹爪坐标标签、P4 部位标签与首版 OSC 数据集。实机标定工具、STL/OBJ 导入、深度/分割、LIBERO 任务的完整物理回放和真实硬件接入仍未实现；数据集到 LeRobot 的转换要在实验室装有 lerobot 的环境中完成。
 - OpenVLA-OFT 已有独立适配器和可选推理桥接服务；由于没有完整权重，本轮没有加载或验证真实 VLA。π₀.₅ / G³VLA / Gripper-Centric Contact 模块本身尚未实现。
 
 研究背景遵循用户提供的 RoboLab 交接资料：当前阶段建设可用的仿真工作站；π₀.₅、OpenVLA-OFT 和 G³VLA 相关研究接口留待后续，不下载模型权重。
