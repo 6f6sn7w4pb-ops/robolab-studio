@@ -21,6 +21,8 @@ PHRASING = {'seen': '已见说法', 'held_out': '未见说法'}
 STATE = {'finalized': '已结束', 'incomplete': '未完成', 'cancelled': '已取消'}
 RATES = (('success', '成功率'), ('part_hit', '部位命中率'), ('lifted', '抬起率'), ('collision', '碰撞率'))
 CAMERAS = ('agentview', 'robot0_eye_in_hand')
+SCENE_SETS = {'dataset': '数据集测试场景', 'extended': '扩展测试场景'}
+APPEARANCE = {'lighting': '光照', 'background': '背景', 'objects': '物体颜色'}
 
 
 def read_eval_summary(path):
@@ -69,6 +71,9 @@ class EvalSummary(QDialog):
         self.status = QLabel()
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
+        self.scene_line = QLabel()
+        self.scene_line.setWordWrap(True)
+        layout.addWidget(self.scene_line)
         self.groups = QTreeWidget()
         self.groups.setRootIsDecorated(False)
         self.groups.setMaximumHeight(170)
@@ -125,6 +130,13 @@ class EvalSummary(QDialog):
                  '复跑一致 {recheck} · 与数据集逐帧一致 {reference}', state=tr(STATE[data['status']]),
                  policy=policy['policy_id'], kind=tr(kind), finished=data['finished'], planned=data['planned'],
                  recheck=check(checks.get('recheck_identical')), reference=check(checks.get('reference_identical')))
+        conditions = data.get('conditions') or {}
+        appearance = ' + '.join(tr(APPEARANCE.get(name, name)) for name in conditions.get('appearance') or []) or tr('无')
+        scene_set = conditions.get('scene_set', 'dataset')
+        set_text(self.scene_line, '场景条件：{scene_set} · 圆柱防滚 {anti_roll} · 外观变化 {appearance} · 与数据集物理一致 {physics}',
+                 scene_set=tr(SCENE_SETS.get(scene_set, scene_set)),
+                 anti_roll=tr('开' if conditions.get('anti_roll') else '关'), appearance=appearance,
+                 physics=check(checks.get('reference_physics_identical')))
         self.groups.setHeaderLabels([tr('分组'), tr('条数')]+[tr(label) for _, label in RATES]+[tr('接触时部位正确率')])
         for index, size in enumerate((190, 55, 150, 150, 150, 150, 160)):
             self.groups.setColumnWidth(index, size)

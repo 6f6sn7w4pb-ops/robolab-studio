@@ -248,11 +248,14 @@ class Reference:
             self._note('state', tick, np.array_equal(observation['state'], self.state[tick]))
 
     def report(self, outcome, ticks):
-        identical = (ticks == len(self.trace) and all(value is None for value in self.first.values())
-                     and self.compared['action'] == len(self.trace))
+        complete = ticks == len(self.trace) and self.compared['action'] == len(self.trace)
+        identical = complete and all(value is None for value in self.first.values())
+        # Physics only (actions, qpos, verdict): what an appearance variant must leave unchanged.
+        physics = complete and self.first['action'] is None and self.first['qpos'] is None
         return dict(reference_ticks=len(self.trace), compared=self.compared, first_divergence_tick=self.first,
                     exported_view_compared=self.images is not None,
-                    outcome_equal=outcome == self.outcome, identical=identical and outcome == self.outcome)
+                    outcome_equal=outcome == self.outcome, identical=identical and outcome == self.outcome,
+                    physics_identical=physics and outcome == self.outcome)
 
 
 def export_case_index(dataset_root):
@@ -333,13 +336,14 @@ def episode_metrics(case, outcome, rows, error=None):
 
 
 def run_eval_episode(engine, case, policy, directory, *, language='en', horizon=None, execute_steps=0,
-                     keyframe_every=KEYFRAME_EVERY, reference=None):
+                     keyframe_every=KEYFRAME_EVERY, reference=None, anti_roll=False, appearance=()):
     """Run one closed-loop episode and write result.json, trace.jsonl, timing.json, keyframes/."""
     from PIL import Image
 
     from .p4_osc import OSC_PERIOD_S
-    from .p4_osc_recording import TICKS, _load_scene
+    from .p4_osc_recording import TICKS
     from .p4_parts import PartEvidence, TARGET
+    from .p5_variation import load_eval_scene
     from .policy import validate_actions
 
     horizon = horizon or TICKS
@@ -347,7 +351,7 @@ def run_eval_episode(engine, case, policy, directory, *, language='en', horizon=
         raise ValueError('horizon must exceed the settle reference tick')
     directory.mkdir(parents=True, exist_ok=False)
     started = time.monotonic()
-    osc = _load_scene(engine, case.scene)
+    osc, variant = load_eval_scene(engine, case.scene, anti_roll=anti_roll, appearance=appearance)
     model = engine.model
     instruction = case.instruction_en if language == 'en' else case.instruction_zh
     observe = Observer(engine, instruction, language)
@@ -411,7 +415,7 @@ def run_eval_episode(engine, case, policy, directory, *, language='en', horizon=
     metrics = episode_metrics(case, outcome, rows, error)
     result = dict(schema=EPISODE_SCHEMA, status='finished', case=case.describe(), policy=policy.describe(),
                   language=language, instruction=instruction, horizon=horizon, execute_steps=execute_steps,
-                  observation_layout=OBSERVATION_LAYOUT, action_space=observe.action_space,
+                  observation_layout=OBSERVATION_LAYOUT, action_space=observe.action_space, scene_variant=variant,
                   initial_qpos_sha256=initial_sha, outcome=outcome, metrics=metrics, error=error,
                   policy_queries=queries, keyframes=keyframes,
                   reference=None if reference is None else reference.report(outcome, len(rows)))
@@ -486,11 +490,14 @@ def publish_json(path, value):
     temporary.replace(path)
 
 
-def select_cases(dataset_root, splits):
+def select_cases(dataset_root, splits, scene_set='dataset'):
+    """(plan, chosen cases, scene-set info); 'extended' adds the audited extra test scenes."""
     from .p4_dataset_build import load_plan, ordered_cases
+    from .p5_scenes import scene_set_cases
     plan, cases, controls = load_plan(dataset_root)
+    cases, controls, info = scene_set_cases(scene_set, cases, controls)
     chosen = [case for case in ordered_cases(cases, controls) if case.split in splits]
-    return plan, chosen
+    return plan, chosen, info
 
 
 def recompute_metrics(directory, result):
@@ -501,6 +508,22 @@ def recompute_metrics(directory, result):
     metrics = episode_metrics(SimpleNamespace(part=result['case']['part']), result['outcome'], rows, result['error'])
     metrics['recomputed_from_files'] = True
     return metrics
+
+
+def reference_physics_identical(reference):
+    """Results written before P5-B lack the key; derive it from the stored first-divergence ticks."""
+    if 'physics_identical' in reference:
+        return bool(reference['physics_identical'])
+    first = reference['first_divergence_tick']
+    return bool(reference['identical'] or (first['action'] is None and first['qpos'] is None
+                                           and reference['outcome_equal']
+                                           and reference['compared']['action'] == reference['reference_ticks']))
+
+
+def conditions(config):
+    """Scene conditions of a run; configs written before these options existed are nominal."""
+    return dict(scene_set=config.get('scene_set', 'dataset'), anti_roll=bool(config.get('anti_roll', False)),
+                appearance=list(config.get('appearance', [])), appearance_seed=config.get('appearance_seed'))
 
 
 def build_summary(root, *, recheck=None, elapsed_wall_s=None, status=None):
@@ -518,7 +541,10 @@ def build_summary(root, *, recheck=None, elapsed_wall_s=None, status=None):
             missing.append(case_id)
     evaluated = [row for row in rows if row['case']['split'] != 'control']
     controls = [row for row in rows if row['case']['split'] == 'control']
-    reference_rows = [row for row in rows if row.get('reference')]
+    # Anti-roll changes the target-floor contact on purpose, so those episodes cannot match the
+    # recorded demonstration; they are counted separately instead of failing the identity check.
+    compared_rows = [row for row in rows if row.get('reference')]
+    reference_rows = [row for row in compared_rows if not (row.get('scene_variant') or {}).get('anti_roll')]
     runs = [dict(path=row['path'], case_id=row['case']['case_id'], scene_id=row['case']['scene']['scene_id'],
                  split=row['case']['split'], family=row['case']['family'], part=row['case']['part'],
                  phrasing=row['case']['instruction']['phrasing'], instruction=dict(en=row['case']['instruction']['en'],
@@ -535,17 +561,22 @@ def build_summary(root, *, recheck=None, elapsed_wall_s=None, status=None):
                    is_vla=bool(rows) and all(row['policy'].get('is_vla') is True for row in rows),
                    dataset=config['dataset'], plan_sha256=config['plan_sha256'], splits=config['splits'],
                    language=config['language'], horizon=config['horizon'], execute_steps=config['execute_steps'],
-                   planned=len(config['case_ids']), finished=len(rows), missing=missing,
+                   conditions=conditions(config), planned=len(config['case_ids']), finished=len(rows), missing=missing,
                    results=summarize(evaluated) if evaluated else None,
                    controls=summarize(controls)['overall'] if controls else None,
                    reference=dict(compared=len(reference_rows),
-                                  identical=sum(row['reference']['identical'] for row in reference_rows)
-                                  ) if reference_rows else None,
+                                  identical=sum(row['reference']['identical'] for row in reference_rows),
+                                  physics_identical=sum(reference_physics_identical(row['reference'])
+                                                        for row in reference_rows),
+                                  excluded_physics_variant=len(compared_rows)-len(reference_rows)
+                                  ) if compared_rows else None,
                    recheck=recheck, elapsed_wall_s=elapsed_wall_s, runs=runs)
     summary['harness_checks'] = dict(
         all_planned_finished=complete,
         recheck_identical=None if recheck is None else all(item['identical'] for item in recheck),
-        reference_identical=None if not reference_rows else summary['reference']['identical'] == len(reference_rows))
+        reference_identical=None if not reference_rows else summary['reference']['identical'] == len(reference_rows),
+        reference_physics_identical=None if not reference_rows
+        else summary['reference']['physics_identical'] == len(reference_rows))
     return summary
 
 
@@ -571,9 +602,11 @@ def run_worker(root, case_ids, *, subdir='episodes', stop=lambda: False, log=pri
 
     config = read_json(root/'eval_config.json')
     dataset = Path(config['dataset'])
-    _, cases = select_cases(dataset, set(config['splits']))
+    scene = conditions(config)
+    _, cases, _ = select_cases(dataset, set(config['splits']), scene['scene_set'])
     lookup = {case.case_id: case for case in cases}
     export_index = export_case_index(dataset) if config['reference'] else {}
+    appearance = tuple(scene['appearance'])
     policy = make_policy(config['policy_spec'])
     engine = Engine()
     try:
@@ -590,11 +623,14 @@ def run_worker(root, case_ids, *, subdir='episodes', stop=lambda: False, log=pri
                 archive.mkdir(exist_ok=True)
                 serial = sum(1 for _ in archive.glob(f'{subdir}-{case_id}-*'))
                 shutil.move(str(directory), archive/f'{subdir}-{case_id}-{serial}')
-            reference = Reference(dataset, case_id, export_index) if config['reference'] else None
+            # Extra scenes have no recorded demonstration to compare with.
+            recorded = (dataset/'episodes'/case_id/'manifest.json').is_file()
+            reference = Reference(dataset, case_id, export_index) if config['reference'] and recorded else None
             try:
                 result = run_eval_episode(engine, lookup[case_id], policy, directory, language=config['language'],
                                           horizon=config['horizon'], execute_steps=config['execute_steps'],
-                                          keyframe_every=config['keyframe_every'], reference=reference)
+                                          keyframe_every=config['keyframe_every'], reference=reference,
+                                          anti_roll=scene['anti_roll'], appearance=appearance)
             except Exception as error:
                 log(json.dumps(dict(event='episode_error', case_id=case_id, error=str(error),
                                     traceback=traceback.format_exc())))
@@ -603,16 +639,22 @@ def run_worker(root, case_ids, *, subdir='episodes', stop=lambda: False, log=pri
             log(json.dumps(dict(event='episode', case_id=case_id, success=metrics['success'],
                                 part_hit=metrics['part_hit'], collision=metrics['collision'],
                                 reasons=metrics['failure_reasons'],
-                                reference_identical=None if reference is None else result['reference']['identical'])))
+                                reference_identical=None if reference is None else result['reference']['identical'],
+                                physics_identical=None if reference is None
+                                else result['reference']['physics_identical'])))
     finally:
         policy.close()
         engine.close()
 
 
 def config_document(policy_spec_value, policy_description, dataset_root, plan, cases, *, splits, language, horizon,
-                    execute_steps, keyframe_every, reference, commit):
+                    execute_steps, keyframe_every, reference, commit, scene_set='dataset', scene_set_sha256=None,
+                    anti_roll=False, appearance=()):
+    from .p5_variation import APPEARANCE_SEED
     return dict(schema=CONFIG_SCHEMA, policy_spec=policy_spec_value, policy=policy_description,
-                dataset=str(dataset_root), plan_sha256=plan['plan_sha256'], splits=list(splits), language=language,
+                dataset=str(dataset_root), plan_sha256=plan['plan_sha256'], scene_set=scene_set,
+                scene_set_sha256=scene_set_sha256, anti_roll=anti_roll, appearance=list(appearance),
+                appearance_seed=APPEARANCE_SEED if appearance else None, splits=list(splits), language=language,
                 horizon=horizon, execute_steps=execute_steps, keyframe_every=keyframe_every, reference=reference,
                 case_ids=[case.case_id for case in cases], observation_layout=OBSERVATION_LAYOUT,
                 metrics_version=METRICS_VERSION, code_commit=commit, settle_reference_tick=SETTLE_TICKS - 1,

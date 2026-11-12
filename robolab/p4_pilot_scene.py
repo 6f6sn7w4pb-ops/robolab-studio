@@ -26,8 +26,12 @@ class PilotScene:
     obstacle_half_size_m: tuple[float, float, float]
     held_out_phrasing: bool = False
 
-    def install(self, engine):
-        """Start from the same local Panda/camera assets used by P4-A."""
+    def install(self, engine, xml_hook=None):
+        """Start from the same local Panda/camera assets used by P4-A.
+
+        ``xml_hook(scene, xml_text) -> xml_text`` may adjust the compiled scene (P5 evaluation
+        variants) before the single rebuild; without it the model is the dataset's.
+        """
         self.bar.install(engine, rebuild=False)
         xml = ET.fromstring(engine.base_xml)
         world = xml.find('worldbody')
@@ -53,6 +57,8 @@ class PilotScene:
         ET.SubElement(body, 'geom', name=OBSTACLE, type='box', group='1', size=' '.join(map(str, half)),
                       density='420', rgba='.25 .51 .68 1', friction='.9 .02 .001')
         engine.base_xml = ET.tostring(xml, encoding='unicode')
+        if xml_hook is not None:
+            engine.base_xml = xml_hook(self, engine.base_xml)
         engine._rebuild()
         engine._set_checkpoint()
 

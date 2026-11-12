@@ -26,7 +26,7 @@ def main():
     sys.path.insert(0,str(LIBERO_ROOT))
     import numpy as np
     from robolab.engine import Engine
-    from robolab.episode_store import inspect_episode, load_episode, list_episodes
+    from robolab.episode_store import inspect_episode, load_episode
     from verify_p2_grasp import validate_trajectory
     from PIL import Image
 

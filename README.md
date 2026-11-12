@@ -189,6 +189,15 @@ P5 是批量闭环评估：在 P4-D 的测试场景上运行任意策略，统�
 
 协议见 [P5 评估格式](docs/P5_EVAL_FORMAT.md)，验收见 [P5 报告](docs/P5_REPORT.md)。
 
+P5-B 加强实验条件，并支持多次运行的对比。这些选项只用于评估，不改动数据集：
+
+- **扩展测试场景**：`--scene-set extended` 再加 176 条经过泄漏审计的测试条目，每个测试划分各 120 条。
+- **圆柱防滚**：`--anti-roll` 消除圆柱放在地上时的缓慢自转。
+- **外观变化**：`--appearance all`（或 `lighting`、`background`、`objects` 的组合）按场景改变光照、地面和墙面、物体颜色，物理不变。
+- **对比报表**：`bash scripts/launch.sh --p5-compare --output-dir outputs/p5_compare 标签=运行目录 …` 把多次运行放在共享条目上重算，给出 Wilson 区间、成对 McNemar 检验、可以直接放进报告的 Markdown 表格、逐条 CSV 和图。
+
+说明见 [P5 评估格式](docs/P5_EVAL_FORMAT.md) 第 6–7 节，验收见 [P5-B 报告](docs/P5B_REPORT.md)。
+
 ## 当前边界
 
 - 本次实际场景测试覆盖 LIBERO-Object 的第 0、1 个任务。其他 suite 的任务列表可读取，其全部场景还未逐一验证。

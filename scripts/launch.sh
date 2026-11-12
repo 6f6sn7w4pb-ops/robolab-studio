@@ -23,6 +23,7 @@ case "${1:-}" in
   --p4d-dataset) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/build_p4_dataset.py "$@" ;;
   --p4d-export) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/export_p4_dataset.py "$@" ;;
   --p5-eval) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/run_p5_eval.py "$@" ;;
+  --p5-compare) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/compare_p5_evals.py "$@" ;;
 esac
 if [ ! -x .venv/bin/python ]; then
   echo 'Missing GUI environment. Run scripts/setup.sh first.' >&2

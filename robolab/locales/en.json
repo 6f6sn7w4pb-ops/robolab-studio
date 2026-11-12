@@ -358,5 +358,14 @@
   "与数据集演示逐帧一致：{value}": "Frame-identical to the dataset demonstration: {value}",
   "策略或仿真出错：{message}": "Policy or simulation error: {message}",
   "没有关键帧": "No keyframes",
-  "第 {tick} 步（{seconds:.2f} s）· 当前双指部位 {part} · 抬升 {lift:.3f} m": "Tick {tick} ({seconds:.2f} s) · Part between both fingers {part} · Lift {lift:.3f} m"
+  "第 {tick} 步（{seconds:.2f} s）· 当前双指部位 {part} · 抬升 {lift:.3f} m": "Tick {tick} ({seconds:.2f} s) · Part between both fingers {part} · Lift {lift:.3f} m",
+  "场景条件：{scene_set} · 圆柱防滚 {anti_roll} · 外观变化 {appearance} · 与数据集物理一致 {physics}": "Scene conditions: {scene_set} · Cylinder anti-roll {anti_roll} · Appearance variation {appearance} · Physics identical to dataset {physics}",
+  "数据集测试场景": "Dataset test scenes",
+  "扩展测试场景": "Extended test scenes",
+  "光照": "lighting",
+  "背景": "background",
+  "物体颜色": "object colours",
+  "无": "none",
+  "开": "on",
+  "关": "off"
 }

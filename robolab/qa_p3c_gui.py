@@ -13,14 +13,36 @@ from PySide6.QtWidgets import QCheckBox
 from .config import ROOT
 
 
+def usable_matrix(directory):
+    """The passed P3-C backend matrix in `directory` whose history record still exists, else None."""
+    try:
+        matrix = json.loads((Path(directory)/'result.json').read_text(encoding='utf-8'))
+        history = Path(matrix['view']['history_directory'])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return matrix if matrix.get('passed') is True and history.is_dir() else None
+
+
+def find_matrix(outputs):
+    """Newest usable backend matrix under outputs/, so the GUI test does not need --matrix-dir."""
+    candidates = sorted((path.parent for path in Path(outputs).glob('*/result.json')),
+                        key=lambda path: (path/'result.json').stat().st_mtime, reverse=True)
+    return next((path for path in candidates if usable_matrix(path)), None)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--matrix-dir', type=Path, default=ROOT/'outputs'/'p3c_verification')
+    parser.add_argument('--matrix-dir', type=Path, default=None,
+                        help='P3-C backend matrix (--p3c-test output); default: newest passed one under outputs/')
     parser.add_argument('--output-dir', type=Path, default=ROOT/'outputs'/'p3c_gui')
     args = parser.parse_args()
-    matrix_dir, out = args.matrix_dir.resolve(), args.output_dir.resolve()
-    matrix = json.loads((matrix_dir/'result.json').read_text())
-    assert matrix['passed'], 'Run the P3-C backend matrix first'
+    matrix_dir = args.matrix_dir or find_matrix(ROOT/'outputs')
+    if matrix_dir is None or usable_matrix(matrix_dir) is None:
+        parser.error('No passed P3-C backend matrix found; run first: '
+                     'bash scripts/launch.sh --p3c-test --output-dir outputs/p3c_check')
+    matrix_dir, out = Path(matrix_dir).resolve(), args.output_dir.resolve()
+    matrix = usable_matrix(matrix_dir)
+    print('P3-C backend matrix:', matrix_dir, flush=True)
     out.mkdir(parents=True, exist_ok=False)
     os.environ.update(ROBOLAB_UI_SETTINGS=str(out/'ui.ini'), ROBOLAB_UI_LANGUAGE='zh',
                       ROBOLAB_P2_OUTPUT_DIR=str(out/'episodes'))
