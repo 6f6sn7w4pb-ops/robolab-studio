@@ -180,6 +180,15 @@ P4 C 批用原版 robosuite Panda OSC 执行并记录归一化 7 维指令，绑
 
 P4 D 批生成首版 OSC 数据集：按 seed 确定的 100 个场景 × 粗端/细端 = 200 条，外加 4 条阻挡对照。物体朝向覆盖整圈，按形状族和实例划分，并做泄漏审计；每条都经过精确复执行，抽样重新采集后逐字节比对；最后导出 LIBERO 风格的 HDF5 训练视图和只用训练集计算的归一化统计。运行 `bash scripts/launch.sh --p4d-dataset --workers 2 --output-dir outputs/p4d_check`（每个采集进程约占 2.7 GB 内存），再运行 `bash scripts/launch.sh --p4d-export --dataset outputs/p4d_check`。中断后可加 `--resume` 续跑，`--reindex` 只用已有文件重建索引。「P4 试采汇总」也能打开数据集的 `result.json`。格式见 [P4 数据集格式](docs/P4_DATASET_FORMAT.md)，验收见 [P4 D 批报告](docs/P4_D_REPORT.md)。
 
+P5 是批量闭环评估：在 P4-D 的测试场景上运行任意策略，统一输出成功率、部位命中率、抬起率、碰撞率，以及“碰到物体时部位是否正确”，比例都附 95% 区间。
+
+- **观测**：策略看到的图像和状态与 HDF5 训练视图逐字节一致。
+- **策略**：可以用规则教师参照（`teacher`、`wrong_part_teacher`），也可以通过 `adapter:<name>` 接入已注册的适配器或推理服务（`--endpoint`）。
+- **运行**：例如 `bash scripts/launch.sh --p5-eval --policy adapter:mock --workers 2 --output-dir outputs/p5_check`。可加 `--resume` 续跑，`--reference` 与数据集逐帧比对。
+- **查看**：在「P4 试采汇总」里打开 `summary.json`，可以看分组比例和关键帧。
+
+协议见 [P5 评估格式](docs/P5_EVAL_FORMAT.md)，验收见 [P5 报告](docs/P5_REPORT.md)。
+
 ## 当前边界
 
 - 本次实际场景测试覆盖 LIBERO-Object 的第 0、1 个任务。其他 suite 的任务列表可读取，其全部场景还未逐一验证。

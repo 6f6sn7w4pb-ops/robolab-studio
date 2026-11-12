@@ -280,3 +280,24 @@ bash scripts/launch.sh --language-test  # 较长的双语桌面回归
 - 入口：`--p4d-dataset`（可加 `--resume`、`--reindex`、`--compare-with`）、`--p4d-export`、`--p4d-gui-test`。格式见 [P4_DATASET_FORMAT.md](P4_DATASET_FORMAT.md)，验收见 [P4_D_REPORT.md](P4_D_REPORT.md)。
 - 回归：后端 63 项、界面 10 项通过；P4-C 4 条和 P4-A 细端重跑都和旧记录逐字节一致；`--smoke` 和数据集桌面验收通过。
 - 下一步：P5 批量闭环评估框架（成功率、部位命中率、碰撞率），先用规则教师和 Mock 跑通；实验室端做 LeRobot 转换和 π₀.₅ 接入。本批没有改动环境，没有真实 VLA、训练或硬件。
+
+
+## 19. P5 批量闭环评估（2026-11-12）
+
+- 仓库状态：P4-D 已提交为 `e10351b`，推送到分支 `p4d-osc-dataset`，开了 [PR #2](https://github.com/6f6sn7w4pb-ops/robolab-studio/pull/2)，目标分支是 PR #1 的分支。本批在其上新建分支 `p5-closed-loop-eval`。
+- 本批完成：`robolab/p5_eval.py`、`scripts/run_p5_eval.py`（入口 `--p5-eval`）、桌面窗口 `robolab/p5_eval_view.py`（在 P4 面板选择 `summary.json` 打开）、验收脚本 `--p5-gui-test`。
+  - 观测与 HDF5 训练视图逐字节一致；执行和判定复用数据集代码。
+  - 指标 v2：成功、部位命中、抬起、碰撞、接触时部位正确率，附 Wilson 区间。
+  - 策略：`teacher`、`wrong_part_teacher`，以及 `adapter:<name>`（经 robolab.observation.v1 桥接）。
+- 验收结果：
+  - 教师 64/64 成功，阻挡对照 4/4 检测到碰撞，与数据集逐 tick 比对 68/68 完全一致；
+  - 错部位教师抬起 64/64，但部位命中 0/64；
+  - Mock 经适配器桥接 0/64；
+  - 每组复跑 2/2 逐字节一致。
+- 发现并处理：
+  - 接触前扰动窗口差一个 tick，已修为 v2；
+  - 圆柱 test_instance 001–004 的物体会自发绕长轴转动 1–10°（被动实验证实），只影响诊断项，已如实记录；
+  - 桌面端识别结果类型的方式改为解析整个 JSON；比例为 0 时的分母显示问题已修复。
+- 回归：后端 78 项、GUI 环境 13 项、WSLg 桌面 P5 和 P4-D 验收、`--smoke` 均通过。证据在 `outputs/p5_eval_{teacher,wrong_part,mock}/`、`outputs/p5_gui/`、`outputs/p5_logs/`。详见 [P5_REPORT.md](P5_REPORT.md) 和 [P5_EVAL_FORMAT.md](P5_EVAL_FORMAT.md)。
+- 下一步：实验室端 LeRobot 转换、openpi 训练，再用推理服务 `--policy adapter:<name> --endpoint …` 做首轮真实模型评估。笔记本端可以选做：光照和纹理随机化、圆柱防滚约束、评估结果对比报表。本批没有改动环境，没有真实 VLA、训练或硬件。
+

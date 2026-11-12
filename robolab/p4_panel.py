@@ -14,6 +14,18 @@ from .config import BACKEND_PYTHON, ROOT, backend_environment
 from .i18n import language_manager, set_text, tr
 from .p1_panel import ImageView, open_directory
 from .p4_pilot_view import PilotSummary
+from .p5_eval_view import SUMMARY_SCHEMA, EvalSummary
+
+
+def _schema(path):
+    # Result files are canonical JSON with sorted keys, so "schema" can sit anywhere in the file.
+    # Both result dialogs cap their files at 8 MB; anything larger is left to them to reject.
+    with Path(path).open('rb') as stream:
+        payload = stream.read(8_000_001)
+    if len(payload) > 8_000_000:
+        return None
+    data = json.loads(payload)
+    return data.get('schema') if isinstance(data, dict) else None
 
 
 class PartGraspPanel(QWidget):
@@ -72,14 +84,14 @@ class PartGraspPanel(QWidget):
         language_manager().changed.connect(self._show_summary)
 
     def choose_pilot(self):
-        path, _ = QFileDialog.getOpenFileName(self, tr('选择 P4 试采、OSC 验收或数据集结果'),
+        path, _ = QFileDialog.getOpenFileName(self, tr('选择 P4 试采、OSC 验收、数据集或 P5 评估结果'),
                                                str(ROOT/'outputs'/'p4b_pilot'/'result.json'), 'JSON (*.json)')
         if path:
             self.open_pilot(Path(path))
 
     def open_pilot(self, path):
         try:
-            dialog = PilotSummary(path, self)
+            dialog = EvalSummary(path, self) if _schema(path) == SUMMARY_SCHEMA else PilotSummary(path, self)
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
             self.logs.appendPlainText(str(error))
             QMessageBox.warning(self, tr('P4 试采汇总'), tr('无法读取 P4 试采结果。'))
