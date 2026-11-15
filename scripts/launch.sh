@@ -20,6 +20,10 @@ case "${1:-}" in
   --p4a-test) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/verify_p4_parts.py "$@" ;;
   --p4b-pilot) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/run_p4_pilot.py "$@" ;;
   --p4c-osc) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/verify_p4_osc.py "$@" ;;
+  --p4d-dataset) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/build_p4_dataset.py "$@" ;;
+  --p4d-export) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/export_p4_dataset.py "$@" ;;
+  --p5-eval) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/run_p5_eval.py "$@" ;;
+  --p5-compare) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/compare_p5_evals.py "$@" ;;
 esac
 if [ ! -x .venv/bin/python ]; then
   echo 'Missing GUI environment. Run scripts/setup.sh first.' >&2
@@ -33,6 +37,8 @@ case "${1:-}" in
   --p2-test) exec .venv/bin/python -m robolab.qa_p2_gui ;;
   --p2-batch2-test) exec .venv/bin/python -m robolab.qa_p2_batch2_gui ;;
   --p3c-gui-test) shift; exec .venv/bin/python -m robolab.qa_p3c_gui "$@" ;;
+  --p4d-gui-test) shift; exec .venv/bin/python -m robolab.qa_p4d_gui "$@" ;;
+  --p5-gui-test) shift; exec .venv/bin/python -m robolab.qa_p5_gui "$@" ;;
   --smoke) exec .venv/bin/python -m robolab.qa_gui --smoke ;;
   '') python3 scripts/check_runtime.py --gui; exec .venv/bin/python -m robolab ;;
   *) echo "Unknown option: $1" >&2; exit 2 ;;

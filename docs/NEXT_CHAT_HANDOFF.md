@@ -268,3 +268,53 @@ bash scripts/launch.sh --language-test  # 较长的双语桌面回归
 - 首轮旋转独立比较受 robosuite float32 精度影响，阈值改为 1e-7 并通过，精确复执行比较未放宽。旧 V1/V2 重读、细端轨迹逐字节对照、3＋7 轻量测试和真实桌面双语均通过。
 - CLI `bash scripts/launch.sh --p4c-osc --output-dir outputs/p4c_check`，旧试采汇总可打开 OSC `result.json`。证据 `outputs/p4c_osc_final/`、`outputs/p4c_osc_gui/`，见 [P4 C 批报告](P4_C_REPORT.md)。
 - 下一批先把实际 OSC 扩到已有划分，再向首版 200 条扩量、适配模型数据和验收 M2。环境未改，未做真实 VLA、训练或硬件，仍在 WSL 本地未提交推送。
+
+
+## 18. P4 D 批：首版数据集与 M2（2026-11-11）
+
+- 仓库状态：P2 第二批到 P4-C 已提交为 `7b1741c`，推送到分支 `p2b-p4c-local-progress`，并开了 [PR #1](https://github.com/6f6sn7w4pb-ops/robolab-studio/pull/1)（CI 通过，尚未合并）。本批在其上新建分支 `p4d-osc-dataset`。WSL 里的 `gh` 装在 `~/.local/bin/gh`，已登录，带 workflow 权限。
+- 本批完成：用 SHA256 派生的确定性场景计划，生成 100 个场景 × 粗端/细端 = 200 条，外加 4 条阻挡对照。偏航覆盖 0–360°，训练集里每个部位的方向都覆盖四个扇区。划分为 train 120 / validation 16 / test_instance 24 / test_unseen 40（椭球整族），测试集中一半用留出说法。泄漏审计通过。
+- 采集：用 robosuite OSC 采集，每条都精确复执行（qpos 差 0），并另外检查障碍位移和抓取前物体是否被扰动。结果 200/200 通过，对照 4/4 按预期失败，抽样 4/4 逐字节一致；和作废批次相比，场景没变的 163 条也全部逐字节一致。
+- 第一次采集发现：高大于宽的椭球会在抓取前自己滚翻，原判定还把其中一条误判为成功。已修复：椭球高宽比 ≤ 0.92，并加上抓取前扰动检查（指标 v3）。作废数据保留在 `outputs/p4d_dataset_v1_rejected/rejection/`。
+- 训练视图：LIBERO 风格 HDF5，每个划分一个文件，共 5.98 GB，包括双 RGB、openpi 风格 8 维状态、实际 7 维 OSC 动作、逐指接触、部位、障碍、相机 K/T 和原始接触。经过独立校验，归一化统计只用训练集。本机没有写 LeRobot（`lerobot_written=false`）。
+- 入口：`--p4d-dataset`（可加 `--resume`、`--reindex`、`--compare-with`）、`--p4d-export`、`--p4d-gui-test`。格式见 [P4_DATASET_FORMAT.md](P4_DATASET_FORMAT.md)，验收见 [P4_D_REPORT.md](P4_D_REPORT.md)。
+- 回归：后端 63 项、界面 10 项通过；P4-C 4 条和 P4-A 细端重跑都和旧记录逐字节一致；`--smoke` 和数据集桌面验收通过。
+- 下一步：P5 批量闭环评估框架（成功率、部位命中率、碰撞率），先用规则教师和 Mock 跑通；实验室端做 LeRobot 转换和 π₀.₅ 接入。本批没有改动环境，没有真实 VLA、训练或硬件。
+
+
+## 19. P5 批量闭环评估（2026-11-12）
+
+- 仓库状态：P4-D 已提交为 `e10351b`，推送到分支 `p4d-osc-dataset`，开了 [PR #2](https://github.com/6f6sn7w4pb-ops/robolab-studio/pull/2)，目标分支是 PR #1 的分支。本批在其上新建分支 `p5-closed-loop-eval`。
+- 本批完成：`robolab/p5_eval.py`、`scripts/run_p5_eval.py`（入口 `--p5-eval`）、桌面窗口 `robolab/p5_eval_view.py`（在 P4 面板选择 `summary.json` 打开）、验收脚本 `--p5-gui-test`。
+  - 观测与 HDF5 训练视图逐字节一致；执行和判定复用数据集代码。
+  - 指标 v2：成功、部位命中、抬起、碰撞、接触时部位正确率，附 Wilson 区间。
+  - 策略：`teacher`、`wrong_part_teacher`，以及 `adapter:<name>`（经 robolab.observation.v1 桥接）。
+- 验收结果：
+  - 教师 64/64 成功，阻挡对照 4/4 检测到碰撞，与数据集逐 tick 比对 68/68 完全一致；
+  - 错部位教师抬起 64/64，但部位命中 0/64；
+  - Mock 经适配器桥接 0/64；
+  - 每组复跑 2/2 逐字节一致。
+- 发现并处理：
+  - 接触前扰动窗口差一个 tick，已修为 v2；
+  - 圆柱 test_instance 001–004 的物体会自发绕长轴转动 1–10°（被动实验证实），只影响诊断项，已如实记录；
+  - 桌面端识别结果类型的方式改为解析整个 JSON；比例为 0 时的分母显示问题已修复。
+- 回归：后端 78 项、GUI 环境 13 项、WSLg 桌面 P5 和 P4-D 验收、`--smoke` 均通过。证据在 `outputs/p5_eval_{teacher,wrong_part,mock}/`、`outputs/p5_gui/`、`outputs/p5_logs/`。详见 [P5_REPORT.md](P5_REPORT.md) 和 [P5_EVAL_FORMAT.md](P5_EVAL_FORMAT.md)。
+- 下一步：实验室端 LeRobot 转换、openpi 训练，再用推理服务 `--policy adapter:<name> --endpoint …` 做首轮真实模型评估。笔记本端可以选做：光照和纹理随机化、圆柱防滚约束、评估结果对比报表。本批没有改动环境，没有真实 VLA、训练或硬件。
+
+
+## 20. P5-B 实验条件加强与对比报表（2026-11-12）
+
+- 仓库状态：P5 已提交为 `5685b57`，推送到分支 `p5-closed-loop-eval`，开了 [PR #3](https://github.com/6f6sn7w4pb-ops/robolab-studio/pull/3)，目标分支是 PR #2 的分支。本批在其上新建分支 `p5b-laptop-extensions`。
+- 小收尾：删掉 6 处未使用的 import；`--p3c-gui-test` 默认自动找最新一份通过的后端矩阵。
+- 新增功能（只用于评估，数据集不变）：
+  - `--scene-set extended`：再加 176 条经过审计的测试条目，每个测试划分 120 条；
+  - `--anti-roll`：只对圆柱目标与地面之间的接触用 condim 6，消除自转；
+  - `--appearance lighting,background,objects|all`：按场景确定的外观变化，物理不变；
+  - `--p5-compare`：在共享条目上重算，给出 Wilson 区间、McNemar 检验、Markdown 表格、CSV 和图；
+  - P5 窗口新增“场景条件”一行。
+- 验收结果：
+  - 教师在扩展场景 + 防滚下 240/240 成功，对照 4/4 检出碰撞，复跑 2/2 一致；
+  - 教师在全部外观变化下 64/64 成功，物理与数据集 68/68 一致，图像都不同；
+  - 被动实验：40 个圆柱场景里 31 个原本会滚动，防滚后 0 个。
+- 回归：后端 91 项通过；GUI 环境测试通过；WSLg 桌面 P5（5 份汇总）、P3-C 和 `--smoke` 均通过。证据在 `outputs/p5b_*`。详见 [P5B_REPORT.md](P5B_REPORT.md)。
+- 下一步（实验室端）：接入推理服务后，在扩展场景 + 防滚下分别用标准外观和 `--appearance all` 各评估一轮，再用 `--p5-compare` 和教师参照放在一起汇总。

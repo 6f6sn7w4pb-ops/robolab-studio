@@ -1,5 +1,4 @@
 """Integration tests against the actual installed MuJoCo and LIBERO, no mocks."""
-import json
 import tempfile
 import unittest
 from pathlib import Path

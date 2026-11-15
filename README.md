@@ -25,7 +25,7 @@ bash scripts/launch.sh
 
 新机器没有仿真环境时，先阅读 [实验室安装说明](docs/INSTALL.md)，再显式执行隔离安装入口 `bash scripts/bootstrap_sim.sh --create-isolated-env`。安装仅作用于项目虚拟环境，不修改实验室已有研究环境。全新安装路线仍待实验室验收。
 
-平台更新与开发进度见 [开发路线](docs/LAPTOP_ROADMAP.md)；迁移验证范围见 [GitHub 发布与迁移验收](docs/GITHUB_RELEASE.md)。自动化轻量测试不代表真实渲染或 VLA 已通过。
+项目整体的技术总结和实验室阶段的工作计划见 [技术总结与实验室计划](docs/PROJECT_REPORT.md)。平台更新与开发进度见 [开发路线](docs/LAPTOP_ROADMAP.md)；迁移验证范围见 [GitHub 发布与迁移验收](docs/GITHUB_RELEASE.md)。自动化轻量测试不代表真实渲染或 VLA 已通过。
 
 ## 原笔记本配置与功能说明
 
@@ -178,13 +178,33 @@ P4 B 批新增三类几何、按形状族留出的试采、最近障碍表面点
 
 P4 C 批用原版 robosuite Panda OSC 执行并记录归一化 7 维指令，绑定 20 Hz 双 RGB、原生接触和独立物理复执行。运行 `bash scripts/launch.sh --p4c-osc --output-dir outputs/p4c_check`。试采汇总也可读取生成的 OSC `result.json`。见 [P4 C 批报告](docs/P4_C_REPORT.md)。
 
+P4 D 批生成首版 OSC 数据集：按 seed 确定的 100 个场景 × 粗端/细端 = 200 条，外加 4 条阻挡对照。物体朝向覆盖整圈，按形状族和实例划分，并做泄漏审计；每条都经过精确复执行，抽样重新采集后逐字节比对；最后导出 LIBERO 风格的 HDF5 训练视图和只用训练集计算的归一化统计。运行 `bash scripts/launch.sh --p4d-dataset --workers 2 --output-dir outputs/p4d_check`（每个采集进程约占 2.7 GB 内存），再运行 `bash scripts/launch.sh --p4d-export --dataset outputs/p4d_check`。中断后可加 `--resume` 续跑，`--reindex` 只用已有文件重建索引。「P4 试采汇总」也能打开数据集的 `result.json`。格式见 [P4 数据集格式](docs/P4_DATASET_FORMAT.md)，验收见 [P4 D 批报告](docs/P4_D_REPORT.md)。
+
+P5 是批量闭环评估：在 P4-D 的测试场景上运行任意策略，统一输出成功率、部位命中率、抬起率、碰撞率，以及“碰到物体时部位是否正确”，比例都附 95% 区间。
+
+- **观测**：策略看到的图像和状态与 HDF5 训练视图逐字节一致。
+- **策略**：可以用规则教师参照（`teacher`、`wrong_part_teacher`），也可以通过 `adapter:<name>` 接入已注册的适配器或推理服务（`--endpoint`）。
+- **运行**：例如 `bash scripts/launch.sh --p5-eval --policy adapter:mock --workers 2 --output-dir outputs/p5_check`。可加 `--resume` 续跑，`--reference` 与数据集逐帧比对。
+- **查看**：在「P4 试采汇总」里打开 `summary.json`，可以看分组比例和关键帧。
+
+协议见 [P5 评估格式](docs/P5_EVAL_FORMAT.md)，验收见 [P5 报告](docs/P5_REPORT.md)。
+
+P5-B 加强实验条件，并支持多次运行的对比。这些选项只用于评估，不改动数据集：
+
+- **扩展测试场景**：`--scene-set extended` 再加 176 条经过泄漏审计的测试条目，每个测试划分各 120 条。
+- **圆柱防滚**：`--anti-roll` 消除圆柱放在地上时的缓慢自转。
+- **外观变化**：`--appearance all`（或 `lighting`、`background`、`objects` 的组合）按场景改变光照、地面和墙面、物体颜色，物理不变。
+- **对比报表**：`bash scripts/launch.sh --p5-compare --output-dir outputs/p5_compare 标签=运行目录 …` 把多次运行放在共享条目上重算，给出 Wilson 区间、成对 McNemar 检验、可以直接放进报告的 Markdown 表格、逐条 CSV 和图。
+
+说明见 [P5 评估格式](docs/P5_EVAL_FORMAT.md) 第 6–7 节，验收见 [P5-B 报告](docs/P5B_REPORT.md)。
+
 ## 当前边界
 
 - 本次实际场景测试覆盖 LIBERO-Object 的第 0、1 个任务。其他 suite 的任务列表可读取，其全部场景还未逐一验证。
 - 原始 LIBERO 网格资产受到保护；仅支持位姿编辑。完整的删除、缩放、质量和碰撞编辑针对编辑器新增的基础物体。
 - 场景变换通过数字属性应用；未提供鼠标拖拽变换手柄、撤销栈或网格建模工具。
 - 任务切换需要初始化渲染资源，界面不阻塞，但仍有等待时间。
-- 已有独立双相机实时预览及 P1 离屏验证，并为策略输入附带仿真相机几何参数；P2 已有规则抓取轨迹记录和双指接触布尔值。实机标定工具、STL/OBJ 导入、深度/分割、接触点/法向/力标注、完整回放和真实硬件接入仍未实现。
+- 已有双相机实时预览、P1 离屏验证、P2 规则抓取记录、P3 指尖接触点/法向/力及夹爪坐标标签、P4 部位标签与首版 OSC 数据集。实机标定工具、STL/OBJ 导入、深度/分割、LIBERO 任务的完整物理回放和真实硬件接入仍未实现；数据集到 LeRobot 的转换要在实验室装有 lerobot 的环境中完成。
 - OpenVLA-OFT 已有独立适配器和可选推理桥接服务；由于没有完整权重，本轮没有加载或验证真实 VLA。π₀.₅ / G³VLA / Gripper-Centric Contact 模块本身尚未实现。
 
 研究背景遵循用户提供的 RoboLab 交接资料：当前阶段建设可用的仿真工作站；π₀.₅、OpenVLA-OFT 和 G³VLA 相关研究接口留待后续，不下载模型权重。

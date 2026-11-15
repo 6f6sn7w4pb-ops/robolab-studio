@@ -3,7 +3,6 @@ import json
 import time
 import traceback
 import sys
-from pathlib import Path
 from PySide6.QtCore import Qt, QPoint
 from PySide6.QtTest import QTest
 from .gui import configure_application, MainWindow
