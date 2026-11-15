@@ -9,12 +9,15 @@ from PySide6.QtGui import QAction, QColor, QFont, QFontDatabase, QPainter, QPixm
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QComboBox, QSplitter, QTreeWidget, QTreeWidgetItem, QTabWidget, QFormLayout,
     QDoubleSpinBox, QCheckBox, QSlider, QPlainTextEdit, QFileDialog, QToolBar, QFrame, QScrollArea,
-    QLineEdit, QSpinBox, QProgressBar)
+    QLineEdit, QSpinBox, QProgressBar, QGridLayout)
 
 from .client import BackendClient
 from .config import ROOT, DEFAULT_PROJECTS
 from .p1_panel import DualCameraView, P1TestPanel, desktop_path, open_directory
 from .i18n import language_manager, set_text, tr
+from .p2_browser import P2Browser
+from .contact_panel import ContactControls
+from .p4_panel import PartGraspPanel
 
 STYLE = '''
 QMainWindow, QWidget { background: #f3f5f8; color: #18283e; font-size: 13px; }
@@ -170,6 +173,7 @@ class MainWindow(QMainWindow):
         verify_menu = self.menuBar().addMenu('验证')
         verify_menu.addAction('双相机实时查看', lambda: self.view_tabs.setCurrentIndex(1))
         verify_menu.addAction('P1 离屏自检', lambda: self.view_tabs.setCurrentIndex(2))
+        verify_menu.addAction('P4 部位抓取', lambda: self.view_tabs.setCurrentWidget(self.p4_panel))
         toolbar = QToolBar(); toolbar.setMovable(False); self.addToolBar(toolbar)
         toolbar.addWidget(label('RoboLab Studio', 'brand'))
         toolbar.addSeparator()
@@ -222,6 +226,10 @@ class MainWindow(QMainWindow):
         ml.addLayout(viewtop)
         self.viewport=Viewport(); self.viewport.camera.connect(lambda action,dx,dy:self.command('camera',action=action,dx=dx,dy=dy)); self.viewport.picked.connect(lambda x,y:self.command('pick',x=x,y=y)); self.viewport.focused.connect(lambda:self.command('camera',action='focus'))
         ml.addWidget(self.viewport,1)
+        self.contact_controls = ContactControls()
+        self.contact_controls.changed.connect(lambda: self.command(
+            'contact_view', enabled=self.contact_controls.show_contacts.isChecked(), **self.contact_controls.options()))
+        ml.addWidget(self.contact_controls)
         ml.addWidget(label('左键拖动 旋转    右键/中键 平移    滚轮 缩放    单击 选取    双击 聚焦','muted'))
         self.scene_status=label('正在连接本机仿真进程…','muted'); ml.addWidget(self.scene_status)
         self.execution_status=label('任务执行：未启动。物理仿真与策略执行分开控制。','muted'); self.execution_status.setWordWrap(True); ml.addWidget(self.execution_status)
@@ -237,6 +245,12 @@ class MainWindow(QMainWindow):
         self.p1_panel.diagnostic.connect(self.log)
         self.p1_panel.completed.connect(lambda _: QTimer.singleShot(0,self.close) if self.closing_window else None)
         self.view_tabs.currentChanged.connect(self._sync_camera_stream)
+        self.p2_browser = P2Browser(self.command)
+        self.view_tabs.addTab(self.p2_browser, 'P2 记录 / 状态查看')
+        self.view_tabs.currentChanged.connect(lambda index: self.p2_browser.reload() if index == 3 else self.p2_browser.stop_play())
+        self.p4_panel = PartGraspPanel()
+        self.view_tabs.addTab(self.p4_panel, 'P4 部位抓取')
+        self.p4_panel.completed.connect(lambda _: QTimer.singleShot(0,self.close) if self.closing_window else None)
         split.addWidget(middle)
         self.tabs=QTabWidget()
         self.properties_scroll=QScrollArea(); self.properties_scroll.setWidgetResizable(True); self.properties_scroll.setMinimumWidth(300)
@@ -251,7 +265,18 @@ class MainWindow(QMainWindow):
         self.gripper_slider=QSlider(Qt.Orientation.Horizontal); self.gripper_slider.setObjectName('gripper'); self.gripper_slider.setRange(0,100); self.gripper_slider.setValue(100)
         self.gripper_slider.valueChanged.connect(self.queue_gripper); self.robot_layout.addWidget(self.gripper_slider)
         self.eef_label=label('末端位姿：等待数据','muted'); self.eef_label.setWordWrap(True); self.robot_layout.addWidget(self.eef_label)
-        self.robot_layout.addStretch(); self.tabs.addTab(self.robot_widget,'机械臂控制')
+        self.robot_layout.addWidget(label('末端 XYZ 点动 · 世界坐标 / mm', 'panelTitle'))
+        self.jog_step = QDoubleSpinBox(); self.jog_step.setRange(1,10); self.jog_step.setDecimals(1); self.jog_step.setValue(5); self.jog_step.setSuffix(' mm'); self.robot_layout.addWidget(self.jog_step)
+        row=QGridLayout(); self.jog_buttons=[]
+        for axis in range(3):
+            for direction in (-1,1):
+                button=QPushButton('XYZ'[axis]+('−' if direction<0 else '+')); button.setObjectName(f'jog_{axis}_{direction}')
+                button.clicked.connect(lambda checked=False,a=axis,d=direction:self.jog_axis(a,d)); row.addWidget(button,0 if direction<0 else 1,axis); self.jog_buttons.append(button)
+        self.robot_layout.addLayout(row)
+        self.jog_status=label('保持当前末端姿态；编辑态更新基准，仿真态需运行或单步。仅检查运动学可达性，不保证无碰撞。','muted'); self.jog_status.setWordWrap(True); self.robot_layout.addWidget(self.jog_status)
+        self.jog_feedback=label('点动目标状态：空闲','muted'); self.robot_layout.addWidget(self.jog_feedback)
+        self.robot_layout.addStretch()
+        robot_scroll=QScrollArea(); robot_scroll.setWidgetResizable(True); robot_scroll.setWidget(self.robot_widget); self.tabs.addTab(robot_scroll,'机械臂控制')
         self._build_policy_tab()
         split.addWidget(self.tabs)
         split.setSizes([245,880,330]); split.setStretchFactor(1,1)
@@ -284,7 +309,11 @@ class MainWindow(QMainWindow):
         self.stop_policy_button=QPushButton('结束策略（保留当前姿态）'); self.stop_policy_button.clicked.connect(lambda:self.command('policy_stop')); box.addWidget(self.stop_policy_button)
         self.policy_progress=QProgressBar(); self.policy_progress.setRange(0,100); self.policy_progress.setValue(0); box.addWidget(self.policy_progress)
         self.policy_detail=label('观察输入：双 RGB、8 维本体状态、任务文字。\n动作输出：LIBERO 7 维 OSC 命令，不是关节角。','muted'); self.policy_detail.setWordWrap(True); box.addWidget(self.policy_detail)
-        self.grasp_test_button=QPushButton('P2 规则抓取与记录（非 VLA）'); self.grasp_test_button.clicked.connect(lambda:self.command('grasp_test')); box.addWidget(self.grasp_test_button)
+        self.record_contacts = QCheckBox('同时保存 P3 接触记录')
+        box.addWidget(self.record_contacts)
+        self.grasp_test_button=QPushButton('P2 规则抓取与记录（非 VLA）')
+        self.grasp_test_button.clicked.connect(lambda: self.command('grasp_test', record_contacts=self.record_contacts.isChecked()))
+        box.addWidget(self.grasp_test_button)
         p2_note=label('P2：关节 PD。双指接触 ≥0.2s；提升 ≥0.10m 且双指接触持续 ≥0.5s。','muted'); p2_note.setWordWrap(True); box.addWidget(p2_note)
         self.p2_record_dir=None
         self.p2_result_label=label('P2：尚无执行记录','muted'); self.p2_result_label.setWordWrap(True); box.addWidget(self.p2_result_label)
@@ -340,7 +369,7 @@ class MainWindow(QMainWindow):
             self.log_stream.write(line+'\n'); self.log_stream.flush()
 
     def command(self, op, **args):
-        if op in ('load','load_task','add','update','delete','policy_scan','policy_configure','policy_load','policy_run','grasp_test'):
+        if op in ('load','load_task','add','update','delete','policy_scan','policy_configure','policy_load','policy_run','grasp_test','replay_open'):
             if op in ('load','load_task','add','update','delete'): self.live_cameras.clear('正在更新场景，等待新图像…')
             self.busy=True; self.error_banner.hide(); self._update_enabled()
         return self.client.send(op, **args)
@@ -377,9 +406,13 @@ class MainWindow(QMainWindow):
             else: self.load_button.setEnabled(True)
         elif event=='busy':
             self.busy=True; self._update_enabled()
-            set_text(self.scene_status, '正在应用场景编辑并编译物理模型…' if message['op'] in ('add','update','delete') else '正在加载与编译真实 LIBERO 场景…')
+            set_text(self.scene_status, '正在验证记录并重建独立状态场景…' if message['op']=='replay_open' else '正在应用场景编辑并编译物理模型…' if message['op'] in ('add','update','delete') else '正在加载与编译真实 LIBERO 场景…')
         elif event=='frame':
             self.viewport.set_frame(message['jpeg']); self.frame_count+=1; self.update_state(message['state'])
+            availability = self.state.get('contact_sampling', {}).get('availability')
+            hint = {'unsupported': '当前策略没有原生求解器接触样本',
+                    'error': '接触采样出错'}.get(availability, '等待原生物理步进采样')
+            self.contact_controls.show_sample(message.get('rendered_contacts'), hint)
         elif event=='camera_frame':
             if not self._camera_requested or self.busy or not self.scene_data or message['task'] != self.scene_data['task']: return
             try:
@@ -392,7 +425,8 @@ class MainWindow(QMainWindow):
             self.live_cameras.clear(message['error']); self.log(message['error']); self._sync_camera_stream()
         elif event=='reply':
             op=message['op']; self.last_reply[op]=message
-            if op in ('load','load_task','add','update','delete','policy_scan','policy_configure','policy_load','policy_run','grasp_test'): self.busy=False
+            self.p2_browser.accept(op, message)
+            if op in ('load','load_task','add','update','delete','policy_scan','policy_configure','policy_load','policy_run','grasp_test','replay_open'): self.busy=False
             if 'state' in message: self.update_state(message['state'])
             if not message['ok']:
                 set_text(self.error_banner, message['error']); self.error_banner.show(); self.log('错误 · '+message['error'])
@@ -402,6 +436,7 @@ class MainWindow(QMainWindow):
             if isinstance(result,dict) and 'bodies' in result:
                 self.update_scene(result)
                 if op in ('load','load_task'):
+                    self.p2_browser.clear_view()
                     self.log('场景已加载（尚未自动执行任务）· '+result['task']['language'])
                     if op=='load': self.project_path=self._opening_path
                     else: self.project_path=None
@@ -428,6 +463,7 @@ class MainWindow(QMainWindow):
                 prediction=result['prediction']; observation=result['observation']
                 set_text(self.policy_detail, f"上次单次测试 / {'Mock' if prediction.get('is_mock') else '真实模型'}：双 RGB → {observation['proprio_dim']} 维本体状态 → {len(prediction['actions'])} 个 7 维动作。\n单次测试未推进物理仿真。")
                 self.log(self.policy_detail.text())
+            if op=='jog_xyz': self.log(self.jog_feedback.text())
             self._update_enabled()
         elif event=='fault':
             self.busy=False; set_text(self.error_banner, message['error']); self.error_banner.show(); self.log('后端错误 · '+message['error'])
@@ -437,7 +473,10 @@ class MainWindow(QMainWindow):
         set_text(self.time_label, f"t = {state['time']:.3f} s")
         self.mode.blockSignals(True); self.mode.setCurrentIndex(0 if state['mode']=='edit' else 1); self.mode.blockSignals(False)
         if state.get('loaded'):
+            self.contact_controls.set_active(state.get('contact_view', {}).get('enabled', False))
             robot=state['robot']
+            jog_status={'idle':'空闲','pending':'等待运动到达','reached':'已到达','stalled':'超时，保持当前关节'}
+            set_text(self.jog_feedback, '点动目标状态：'+jog_status.get(state.get('jog',{}).get('status','idle'),'空闲'))
             for i,slider in enumerate(self.joint_sliders):
                 low,high=robot['limits'][i]
                 slider.blockSignals(True); slider.setRange(math.ceil(low*1000),math.floor(high*1000))
@@ -479,6 +518,11 @@ class MainWindow(QMainWindow):
         loaded=self.state.get('loaded',False) and not self.busy and connected
         editing=loaded and self.state['mode']=='edit' and not self.state['running']
         active=self.state.get('execution',{}).get('status')=='running'
+        can_preview = loaded and (not active or self.state.get('contact_sampling', {}).get('enabled', False))
+        self.contact_controls.setEnabled(can_preview)
+        for b in self.jog_buttons: b.setEnabled(loaded and not active and self.state.get('jog',{}).get('status')!='pending')
+        self.jog_step.setEnabled(loaded and not active)
+        self.p2_browser.set_available(connected and not self.busy, loaded and not active and not self.state['running'])
         for op,b in self.buttons.items():
             b.setEnabled(loaded and (op!='pause' or self.state['running']) and (op!='play' or not self.state['running']) and (op!='step' or not self.state['running']))
         self.mode.setEnabled(loaded)
@@ -502,6 +546,7 @@ class MainWindow(QMainWindow):
         if self.scene_data:
             t=self.scene_data['task']
             self.grasp_test_button.setEnabled(loaded and not active and t['suite']=='libero_object' and t['index']==0)
+        self.record_contacts.setEnabled(self.grasp_test_button.isEnabled())
         if hasattr(self,'apply_button'):
             self.apply_button.setEnabled(editing and self.selected_info is not None and self.selected_info['type'] in ('primitive','libero_object'))
             self.delete_button.setEnabled(editing and self.selected_info is not None and self.selected_info['type']=='primitive')
@@ -586,6 +631,11 @@ class MainWindow(QMainWindow):
         self.pending_joints[index]=value/1000
         if not self.joint_timer.isActive(): self.joint_timer.start()
 
+    def jog_axis(self, axis, direction):
+        self.flush_joints()
+        delta=[0.,0.,0.]; delta[axis]=direction*self.jog_step.value()/1000
+        self.command('jog_xyz', delta=delta, frame='world')
+
     def queue_gripper(self,value):
         self.pending_gripper=value/100
         if not self.joint_timer.isActive(): self.joint_timer.start()
@@ -623,6 +673,7 @@ class MainWindow(QMainWindow):
         self.state['loaded']=False; self.error_banner.hide(); self.log('重新启动仿真后端…'); self.client.start()
 
     def on_disconnected(self,text):
+        self.p2_browser.clear_view()
         self._camera_requested=False; self.live_cameras.clear('仿真后端已断开')
         self.busy=False; self.state['loaded']=False; set_text(self.connection_label, '后端已断开'); self.log(text); self._update_enabled()
         if self.closing_window: self.close()
@@ -630,6 +681,7 @@ class MainWindow(QMainWindow):
             set_text(self.error_banner, text+'；可在“帮助”菜单重启后端。'); self.error_banner.show()
 
     def closeEvent(self,event):
+        self.p2_browser.stop_play()
         self.closing_window=True
         self._sync_camera_stream()
         pending=False
@@ -638,6 +690,8 @@ class MainWindow(QMainWindow):
             pending=True
         if self.p1_panel.is_running:
             self.p1_panel.cancel(); pending=True
+        if self.p4_panel.is_running:
+            self.p4_panel.cancel(); pending=True
         if pending:
             self.setEnabled(False); event.ignore(); return
         if self.p1_panel.movie: self.p1_panel.movie.stop()

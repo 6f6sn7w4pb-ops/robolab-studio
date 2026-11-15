@@ -10,6 +10,7 @@ import platform
 import subprocess
 import time
 import uuid
+import xml.etree.ElementTree as ET
 
 from .config import ROOT, LIBERO_ROOT
 
@@ -93,7 +94,7 @@ def git_head(path):
 
 
 class P2EpisodeRecorder:
-    def __init__(self, engine, target_body, probe, evidence):
+    def __init__(self, engine, target_body, probe, evidence, *, record_contacts=False):
         self.engine, self.target_body, self.probe, self.evidence = engine, target_body, probe, evidence
         output_root = Path(os.getenv('ROBOLAB_P2_OUTPUT_DIR',str(ROOT/'outputs'/'p2_grasp'))).expanduser().resolve()
         self.directory = output_root/(datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'_'+uuid.uuid4().hex[:6])
@@ -101,11 +102,22 @@ class P2EpisodeRecorder:
         self.trajectory = (self.directory/'trajectory.jsonl').open('x',encoding='utf-8')
         self.started_wall = time.monotonic(); self.start_time = float(engine.data.time)
         self.count = 0; self.closed = False; self.result = None
+        # v2 is a sampled full-scene state view, not deterministic simulation
+        # re-execution. Original RGB and solver internals are not recorded.
+        (self.directory/'model.xml').write_text(engine.base_xml, encoding='utf-8')
+        asset_hashes = {}
+        for node in ET.fromstring(engine.base_xml).findall('.//asset/*'):
+            if node.get('file'):
+                asset = Path(node.get('file')).expanduser()
+                if not asset.is_absolute() or not asset.is_file():
+                    self.trajectory.close(); self.closed = True
+                    raise ValueError('State view requires existing absolute local asset paths')
+                asset_hashes[str(asset)] = sha(asset)
         versions = {}
         for name in ('mujoco','robosuite','libero','numpy'):
             try: versions[name]=md.version(name)
             except md.PackageNotFoundError: versions[name]=None
-        self.metadata = {'schema':'robolab.p2_episode.v1','status':'recording','is_vla':False,
+        self.metadata = {'schema':'robolab.p2_episode.v2','status':'recording','is_vla':False,
             'created_at_utc':datetime.now(timezone.utc).isoformat(),'task':dict(engine.task),
             'directory':str(self.directory),'robot_model':'LIBERO Panda','joint_names':engine.robot.names,
             'control':{'adapter':engine.robot_adapter,'action':'joint_targets_rad_and_gripper_open_fraction',
@@ -120,7 +132,18 @@ class P2EpisodeRecorder:
             'geometry_mapping':probe.mapping,'versions':versions,'python':platform.python_version(),
             'source':{'libero_commit':git_head(LIBERO_ROOT),'project_commit':git_head(ROOT),
                       'sha256':{name:sha(ROOT/'robolab'/name) for name in ('task_control.py','engine.py','adapters.py','p2_recording.py')}},
-            'claims':{'real_vla_inference':False,'contact_points_exported':False,'full_episode_replay_implemented':False}}
+            'state_view':{'semantics':'sampled_scene_state_v1', 'model_file':'model.xml',
+                'model_file_sha256':sha(self.directory/'model.xml'),
+                'dimensions':{key:int(getattr(engine.model,key)) for key in ('nq','nv','na','nu','nmocap','nuserdata')},
+                'fields':['qpos','qvel','act','ctrl','mocap_pos','mocap_quat','userdata','qacc_warmstart','qfrc_applied','xfrc_applied'],
+                'original_rgb_recorded':False, 'solver_snapshot_recorded':False,
+                'asset_sha256':asset_hashes,
+                'asset_paths':'existing local LIBERO assets; not a portable asset bundle'},
+            'claims':{'real_vla_inference':False,'contact_points_exported':False,'full_episode_replay_implemented':False,
+                      'sampled_scene_state_view':True}}
+        if record_contacts:
+            from .contact_store import EXPECTED
+            self.metadata[EXPECTED] = True
         try: self._write_metadata()
         except Exception:
             self.trajectory.close(); self.closed=True
@@ -144,6 +167,7 @@ class P2EpisodeRecorder:
                'target_position_world_m':e.data.xpos[self.target_body].tolist(),
                'target_quaternion_wxyz':e.data.xquat[self.target_body].tolist(),
                'finger_target_contact':self.probe.read() if finger_contacts is None else finger_contacts}
+        row['scene_state'] = {name:getattr(e.data,name).tolist() for name in self.metadata['state_view']['fields']}
         self.trajectory.write(json.dumps(row,ensure_ascii=False,allow_nan=False)+'\n')
         self.count += 1
         if self.count%50==0: self.trajectory.flush()

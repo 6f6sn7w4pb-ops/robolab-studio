@@ -1,0 +1,158 @@
+{
+  "schema": "robolab.p3_contact_frame.design_example",
+  "record_origin": "design_example",
+  "episode_id": "DESIGN_EXAMPLE_NOT_AN_EPISODE",
+  "frame_index": 1,
+  "p2_trajectory_row_index": 2,
+  "sampling_mode": "control_tail_substep",
+  "integrator": "Euler",
+  "solver_step_start_time_s": 0.038,
+  "state_after_step_time_s": 0.04,
+  "physics_dt_s": 0.002,
+  "force_epsilon_N": 1e-06,
+  "reference_site": "example_grip_site",
+  "T_world_gripper": [
+    [
+      1.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      1.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      1.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "state_at_solver": {
+    "phase": "solver_input_state",
+    "qpos": [
+      0.0
+    ],
+    "qvel": [
+      0.0
+    ],
+    "ctrl_native": [
+      0.0
+    ]
+  },
+  "target_body": "example_target",
+  "camera_calibration": [
+    {
+      "name": "agentview",
+      "K": [
+        [
+          112.0,
+          0.0,
+          111.5
+        ],
+        [
+          0.0,
+          112.0,
+          111.5
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "T_world_camera": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "image_width": 224,
+      "image_height": 224,
+      "calibration_only": true,
+      "convention": "opencv_x_right_y_down_z_forward"
+    },
+    {
+      "name": "robot0_eye_in_hand",
+      "K": [
+        [
+          112.0,
+          0.0,
+          111.5
+        ],
+        [
+          0.0,
+          112.0,
+          111.5
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "T_world_camera": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "image_width": 224,
+      "image_height": 224,
+      "calibration_only": true,
+      "convention": "opencv_x_right_y_down_z_forward"
+    }
+  ],
+  "original_rgb_recorded": false,
+  "scene_contact_count": 0,
+  "contacts": []
+}
