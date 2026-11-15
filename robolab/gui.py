@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt, Signal, QTimer, QRectF, QProcess
 from PySide6.QtGui import QAction, QColor, QFont, QFontDatabase, QPainter, QPixmap
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QComboBox, QSplitter, QTreeWidget, QTreeWidgetItem, QTabWidget, QFormLayout,
-    QDoubleSpinBox, QCheckBox, QSlider, QPlainTextEdit, QFileDialog, QToolBar, QFrame, QScrollArea,
+    QDoubleSpinBox, QCheckBox, QSlider, QPlainTextEdit, QFileDialog, QToolBar, QScrollArea,
     QLineEdit, QSpinBox, QProgressBar, QGridLayout)
 
 from .client import BackendClient

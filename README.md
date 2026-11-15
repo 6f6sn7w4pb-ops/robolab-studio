@@ -25,7 +25,7 @@ bash scripts/launch.sh
 
 新机器没有仿真环境时，先阅读 [实验室安装说明](docs/INSTALL.md)，再显式执行隔离安装入口 `bash scripts/bootstrap_sim.sh --create-isolated-env`。安装仅作用于项目虚拟环境，不修改实验室已有研究环境。全新安装路线仍待实验室验收。
 
-平台更新与开发进度见 [开发路线](docs/LAPTOP_ROADMAP.md)；迁移验证范围见 [GitHub 发布与迁移验收](docs/GITHUB_RELEASE.md)。自动化轻量测试不代表真实渲染或 VLA 已通过。
+项目整体的技术总结和实验室阶段的工作计划见 [技术总结与实验室计划](docs/PROJECT_REPORT.md)。平台更新与开发进度见 [开发路线](docs/LAPTOP_ROADMAP.md)；迁移验证范围见 [GitHub 发布与迁移验收](docs/GITHUB_RELEASE.md)。自动化轻量测试不代表真实渲染或 VLA 已通过。
 
 ## 原笔记本配置与功能说明
 
@@ -188,6 +188,15 @@ P5 是批量闭环评估：在 P4-D 的测试场景上运行任意策略，统�
 - **查看**：在「P4 试采汇总」里打开 `summary.json`，可以看分组比例和关键帧。
 
 协议见 [P5 评估格式](docs/P5_EVAL_FORMAT.md)，验收见 [P5 报告](docs/P5_REPORT.md)。
+
+P5-B 加强实验条件，并支持多次运行的对比。这些选项只用于评估，不改动数据集：
+
+- **扩展测试场景**：`--scene-set extended` 再加 176 条经过泄漏审计的测试条目，每个测试划分各 120 条。
+- **圆柱防滚**：`--anti-roll` 消除圆柱放在地上时的缓慢自转。
+- **外观变化**：`--appearance all`（或 `lighting`、`background`、`objects` 的组合）按场景改变光照、地面和墙面、物体颜色，物理不变。
+- **对比报表**：`bash scripts/launch.sh --p5-compare --output-dir outputs/p5_compare 标签=运行目录 …` 把多次运行放在共享条目上重算，给出 Wilson 区间、成对 McNemar 检验、可以直接放进报告的 Markdown 表格、逐条 CSV 和图。
+
+说明见 [P5 评估格式](docs/P5_EVAL_FORMAT.md) 第 6–7 节，验收见 [P5-B 报告](docs/P5B_REPORT.md)。
 
 ## 当前边界
 

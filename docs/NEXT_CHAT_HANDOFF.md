@@ -301,3 +301,20 @@ bash scripts/launch.sh --language-test  # 较长的双语桌面回归
 - 回归：后端 78 项、GUI 环境 13 项、WSLg 桌面 P5 和 P4-D 验收、`--smoke` 均通过。证据在 `outputs/p5_eval_{teacher,wrong_part,mock}/`、`outputs/p5_gui/`、`outputs/p5_logs/`。详见 [P5_REPORT.md](P5_REPORT.md) 和 [P5_EVAL_FORMAT.md](P5_EVAL_FORMAT.md)。
 - 下一步：实验室端 LeRobot 转换、openpi 训练，再用推理服务 `--policy adapter:<name> --endpoint …` 做首轮真实模型评估。笔记本端可以选做：光照和纹理随机化、圆柱防滚约束、评估结果对比报表。本批没有改动环境，没有真实 VLA、训练或硬件。
 
+
+## 20. P5-B 实验条件加强与对比报表（2026-11-12）
+
+- 仓库状态：P5 已提交为 `5685b57`，推送到分支 `p5-closed-loop-eval`，开了 [PR #3](https://github.com/6f6sn7w4pb-ops/robolab-studio/pull/3)，目标分支是 PR #2 的分支。本批在其上新建分支 `p5b-laptop-extensions`。
+- 小收尾：删掉 6 处未使用的 import；`--p3c-gui-test` 默认自动找最新一份通过的后端矩阵。
+- 新增功能（只用于评估，数据集不变）：
+  - `--scene-set extended`：再加 176 条经过审计的测试条目，每个测试划分 120 条；
+  - `--anti-roll`：只对圆柱目标与地面之间的接触用 condim 6，消除自转；
+  - `--appearance lighting,background,objects|all`：按场景确定的外观变化，物理不变；
+  - `--p5-compare`：在共享条目上重算，给出 Wilson 区间、McNemar 检验、Markdown 表格、CSV 和图；
+  - P5 窗口新增“场景条件”一行。
+- 验收结果：
+  - 教师在扩展场景 + 防滚下 240/240 成功，对照 4/4 检出碰撞，复跑 2/2 一致；
+  - 教师在全部外观变化下 64/64 成功，物理与数据集 68/68 一致，图像都不同；
+  - 被动实验：40 个圆柱场景里 31 个原本会滚动，防滚后 0 个。
+- 回归：后端 91 项通过；GUI 环境测试通过；WSLg 桌面 P5（5 份汇总）、P3-C 和 `--smoke` 均通过。证据在 `outputs/p5b_*`。详见 [P5B_REPORT.md](P5B_REPORT.md)。
+- 下一步（实验室端）：接入推理服务后，在扩展场景 + 防滚下分别用标准外观和 `--appearance all` 各评估一轮，再用 `--p5-compare` 和教师参照放在一起汇总。

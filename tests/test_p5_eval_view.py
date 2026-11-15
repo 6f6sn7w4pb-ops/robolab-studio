@@ -85,6 +85,7 @@ class EvalViewTests(unittest.TestCase):
         dialog = EvalSummary(self.write(runs))
         self.assertIn('teacher', dialog.status.text())
         self.assertIn('复跑一致 通过', dialog.status.text())
+        self.assertIn('数据集测试场景 · 圆柱防滚 关 · 外观变化 无', dialog.scene_line.text())     # pre-P5-B summary
         self.assertEqual(dialog.groups.topLevelItemCount(), 5)      # all, split, two phrasings, controls
         self.assertTrue(dialog.groups.topLevelItem(0).text(5).startswith('0/3'))      # zero collisions keep 0/n
         self.assertEqual(dialog.table.topLevelItemCount(), 4)
@@ -100,6 +101,16 @@ class EvalViewTests(unittest.TestCase):
         self.app._robolab_language.set_language('en')
         self.assertEqual(dialog.windowTitle(), 'P5 closed-loop evaluation')
         self.assertIn('Re-run identical', dialog.status.text())
+        self.assertIn('Dataset test scenes', dialog.scene_line.text())
+        dialog.close()
+
+    def test_scene_conditions_line(self):
+        conditions = dict(scene_set='extended', anti_roll=True, appearance=['lighting', 'objects'], appearance_seed=1)
+        dialog = EvalSummary(self.write([run(0)], conditions=conditions,
+                                        harness_checks=dict(reference_physics_identical=True)))
+        self.assertIn('扩展测试场景 · 圆柱防滚 开 · 外观变化 光照 + 物体颜色 · 与数据集物理一致 通过', dialog.scene_line.text())
+        self.app._robolab_language.set_language('en')
+        self.assertIn('Cylinder anti-roll on · Appearance variation lighting + object colours', dialog.scene_line.text())
         dialog.close()
 
     def test_rejects_paths_outside_the_result_folder(self):

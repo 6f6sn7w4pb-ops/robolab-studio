@@ -3,11 +3,15 @@
   run_p5_eval.py --policy teacher --output-dir DIR [--dataset outputs/p4d_dataset_v1]
                  [--splits test_instance,test_unseen] [--workers N] [--recheck K] [--reference]
   run_p5_eval.py --policy adapter:mock --output-dir DIR
+  run_p5_eval.py --policy teacher --scene-set extended --anti-roll [--appearance all] --output-dir DIR
   run_p5_eval.py --policy adapter:<name> --endpoint http://HOST:PORT --output-dir DIR
   run_p5_eval.py --output-dir DIR --resume | --resummarize
 
 Policies: teacher (privileged rule teacher, harness reference), wrong_part_teacher (aims at the
 other part; part-metric control), adapter:<name> (registered VlaAdapter via robolab.observation.v1).
+Scene conditions (evaluation only, recorded in the config): --scene-set extended adds 176 audited
+extra test episodes; --anti-roll gives cylinder targets rolling friction against the floor;
+--appearance lighting,background,objects|all applies seeded per-scene rendering changes.
 Each worker owns one simulator (about 2.7 GB RSS); --workers is capped by available memory.
 """
 import argparse
@@ -128,6 +132,12 @@ def main():
     parser.add_argument('--dataset', type=Path, default=ROOT/'outputs'/'p4d_dataset_v1',
                         help='P4-D dataset directory whose plan supplies the scenes')
     parser.add_argument('--splits', default='test_instance,test_unseen')
+    parser.add_argument('--scene-set', choices=('dataset', 'extended'), default='dataset',
+                        help='dataset: the P4-D plan test cases; extended: plus the audited extra test scenes')
+    parser.add_argument('--anti-roll', action='store_true',
+                        help='rolling friction between cylinder targets and the floor (removes slow self-rolling)')
+    parser.add_argument('--appearance', default='',
+                        help='rendering variation: lighting,background,objects (comma list), all, or none')
     parser.add_argument('--language', choices=('en', 'zh'), default='en')
     parser.add_argument('--horizon', type=int, default=0, help='ticks per episode (default: dataset length)')
     parser.add_argument('--execute-steps', type=int, default=0, help='actions executed per chunk (0 = whole chunk)')
@@ -153,6 +163,7 @@ def main():
     from robolab.p4_osc_recording import TICKS
     from robolab.p5_eval import (EVAL_SPLITS, build_summary, compare_runs, config_document, describe_without_loading,
                                  policy_spec, publish_json, read_json, select_cases)
+    from robolab.p5_variation import parse_appearance
 
     root = args.output_dir.resolve()
     if args.resummarize:
@@ -176,8 +187,12 @@ def main():
             parser.error(str(error))
         if spec['kind'] == 'adapter' and args.reference:
             print('note: --reference compares against the teacher demonstrations; divergence is expected', flush=True)
+        try:
+            appearance = parse_appearance(args.appearance)
+        except ValueError as error:
+            parser.error(str(error))
         dataset = args.dataset.resolve()
-        plan, cases = select_cases(dataset, set(splits))
+        plan, cases, scene_info = select_cases(dataset, set(splits), args.scene_set)
         if args.limit:
             cases = cases[:args.limit]
         if not cases:
@@ -186,7 +201,9 @@ def main():
         config = config_document(spec, describe_without_loading(spec), dataset, plan, cases, splits=splits,
                                  language=args.language, horizon=args.horizon or TICKS,
                                  execute_steps=args.execute_steps, keyframe_every=args.keyframe_every,
-                                 reference=args.reference, commit=_commit())
+                                 reference=args.reference, commit=_commit(), scene_set=args.scene_set,
+                                 scene_set_sha256=scene_info['sha256'], anti_roll=args.anti_roll,
+                                 appearance=appearance)
         publish_json(root/'eval_config.json', config)
     (root/'logs').mkdir(exist_ok=True)
     available = available_gb()

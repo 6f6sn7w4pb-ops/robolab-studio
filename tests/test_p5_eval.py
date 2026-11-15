@@ -10,7 +10,8 @@ import unittest
 import numpy as np
 
 from robolab.p5_eval import (EPISODE_SCHEMA, METRICS_VERSION, OBSTACLE_MOVED_M, SETTLE_TICKS, SUMMARY_SCHEMA, build_summary,
-                             compare_runs, episode_metrics, group_stats, policy_spec, summarize, wilson)
+                             compare_runs, episode_metrics, group_stats, policy_spec, reference_physics_identical,
+                             summarize, wilson)
 
 ROOT = Path(__file__).resolve().parents[1]
 HAS_PIL = importlib.util.find_spec('PIL') is not None
@@ -127,6 +128,14 @@ class MetricTests(unittest.TestCase):
         self.assertEqual(set(summary['by_split']), {'test_instance', 'test_unseen'})
         self.assertIn('test_instance/held_out', summary['by_split_phrasing'])
 
+    def test_physics_identity_of_pre_p5b_reference_reports(self):
+        old = dict(identical=False, outcome_equal=True, reference_ticks=222, compared=dict(action=222),
+                   first_divergence_tick=dict(action=None, qpos=None, image=0, state=None))
+        self.assertTrue(reference_physics_identical(old))
+        self.assertFalse(reference_physics_identical(dict(old, first_divergence_tick=dict(old['first_divergence_tick'], qpos=5))))
+        self.assertFalse(reference_physics_identical(dict(old, outcome_equal=False)))
+        self.assertFalse(reference_physics_identical(dict(old, physics_identical=False)))
+
     def test_policy_spec(self):
         self.assertEqual(policy_spec('teacher'), dict(kind='teacher'))
         self.assertEqual(policy_spec('adapter:mock')['adapter'], 'mock')
@@ -193,6 +202,23 @@ class SummaryFileTests(unittest.TestCase):
         run = build_summary(self.root)['runs'][0]
         self.assertTrue(run['metrics']['success'] and run['metrics']['recomputed_from_files'])
         self.assertEqual(run['metrics']['metrics_version'], METRICS_VERSION)
+
+    def test_anti_roll_episodes_are_excluded_from_the_reference_check(self):
+        config = dict(case_ids=['a', 'b'], policy=dict(policy_id='teacher'), policy_spec=dict(kind='teacher'),
+                      dataset='d', plan_sha256='p', splits=['test_instance'], language='en', horizon=222,
+                      execute_steps=0, anti_roll=True)
+        (self.root/'eval_config.json').write_text(json.dumps(config))
+        for case_id, rolled in (('a', False), ('b', True)):
+            payload = dict(record(split='test_instance', success=True), schema=EPISODE_SCHEMA,
+                           scene_variant=dict(anti_roll=rolled, appearance={}),
+                           reference=dict(identical=not rolled, physics_identical=not rolled))
+            payload['case']['case_id'] = case_id
+            self.write_episode('episodes', case_id, payload)
+        summary = build_summary(self.root)
+        self.assertEqual(summary['reference'], dict(compared=1, identical=1, physics_identical=1,
+                                                    excluded_physics_variant=1))
+        self.assertTrue(summary['harness_checks']['reference_identical'])
+        self.assertEqual(summary['conditions']['anti_roll'], True)
 
     def test_compare_runs_detects_any_byte_change(self):
         payload = dict(record(), schema=EPISODE_SCHEMA)

@@ -57,6 +57,10 @@ def main():
             status = dialog.status.text()
             assert f"已完成 {summary['finished']}/{summary['planned']}" in status and name in status, status
             assert dialog.table.topLevelItemCount() == len(summary['runs'])
+            conditions = summary.get('conditions') or {}
+            expected = '扩展测试场景' if conditions.get('scene_set') == 'extended' else '数据集测试场景'
+            assert expected in dialog.scene_line.text() and (
+                ('圆柱防滚 开' in dialog.scene_line.text()) == bool(conditions.get('anti_roll'))), dialog.scene_line.text()
             overall = summary['results']['overall']['success']
             first_group = dialog.groups.topLevelItem(0)
             assert first_group.text(0) == '全部测试' and first_group.text(2).startswith(f"{overall['count']}/"), \
@@ -82,6 +86,7 @@ def main():
             wait(lambda: window.i18n.language == 'en', 'language switch')
             assert dialog.windowTitle() == 'P5 closed-loop evaluation' and 'Finished' in dialog.status.text()
             assert dialog.groups.topLevelItem(0).text(0) == 'All test episodes'
+            assert 'Scene conditions' in dialog.scene_line.text(), dialog.scene_line.text()
             dialog.grab().save(str(out/f"{evaluation.name}-en.png"))
             QTest.mouseClick(window.language_button, Qt.MouseButton.LeftButton)
             wait(lambda: window.i18n.language == 'zh', 'language switch back')
