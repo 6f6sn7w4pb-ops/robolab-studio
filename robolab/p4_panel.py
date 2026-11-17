@@ -1,14 +1,15 @@
 """Desktop entry to the independent, lightweight P4 physical verification run."""
 from datetime import datetime, timezone
+from html import escape
 import json
 import os
 from pathlib import Path
 import uuid
 
-from PySide6.QtCore import QProcess, QProcessEnvironment, QTimer, Signal
+from PySide6.QtCore import QProcess, QProcessEnvironment, QTimer, Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QComboBox, QFileDialog, QHBoxLayout, QLabel, QMessageBox,
-                              QPlainTextEdit, QPushButton, QVBoxLayout, QWidget)
+                              QPlainTextEdit, QPushButton, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
 
 from .config import BACKEND_PYTHON, ROOT, backend_environment
 from .i18n import language_manager, set_text, tr
@@ -48,9 +49,30 @@ class PartGraspPanel(QWidget):
         self._cancelled = False
         self._active = False
         layout = QVBoxLayout(self)
-        note = QLabel('在独立仿真中用几何规则抓取粗端或细端。使用相同初态，保存同一求解器时刻的双 RGB 和接触。')
+        intro = QHBoxLayout()
+        note = QLabel("用途：验证机械臂能否按指令抓对物体的粗端或细端，并记录双相机图像、动作与接触，支持后续数据集和评估开发。")
         note.setWordWrap(True)
-        layout.addWidget(note)
+        intro.addWidget(note, 1)
+        self.help_button = QToolButton()
+        set_text(self.help_button, "P4 是做什么的？")
+        self.help_button.setCheckable(True)
+        self.help_button.setArrowType(Qt.ArrowType.RightArrow)
+        self.help_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        intro.addWidget(self.help_button, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addLayout(intro)
+        self.help_body = QTextBrowser()
+        self.help_body.setFixedHeight(180)
+        self.help_paragraphs = (
+            "怎么操作：选择“粗端”或“细端”，点击“运行 P4 部位抓取”，结束后查看通过状态和双相机结果图。",
+            "怎样才算通过：两指持续夹住指定部位并达到提升要求，且没有检测到手指与障碍物接触。抓错部位，即使抬起来也不通过。",
+            "当前运行：这是 P4-A 单次规则自检，使用独立的双部位测试物体，不跟随左侧 LIBERO 任务。策略读取仿真几何真值，尚非真实 VLA 推理。",
+            "结果怎么看：左图是桌面相机，右图是腕部相机；白十字是指定部位中心，橙色和蓝色标记是两指接触点。显示的是保存的结果图，标记未做遮挡判断。",
+            "数据在哪里：“打开结果目录”查看本次记录；“P4 试采汇总”打开已有 P4/P5 结果文件。此按钮不生成整批训练数据，实际 OSC 动作的数据集由后续 P4-C/D 流程采集。",
+        )
+        self._translate_help()
+        self.help_body.setVisible(False)
+        self.help_button.toggled.connect(self._toggle_help)
+        layout.addWidget(self.help_body)
         row = QHBoxLayout()
         self.part = QComboBox()
         self.part.addItem('抓住物体的粗端并抬起。', 'thick')
@@ -82,6 +104,17 @@ class PartGraspPanel(QWidget):
         self.logs.setMaximumHeight(96)
         layout.addWidget(self.logs)
         language_manager().changed.connect(self._show_summary)
+        language_manager().changed.connect(self._translate_help)
+
+    def _toggle_help(self, expanded):
+        self.help_body.setVisible(expanded)
+        self.help_button.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
+
+    def _translate_help(self, *_):
+        scroll = self.help_body.verticalScrollBar().value()
+        self.help_body.setHtml("".join(
+            f'<p style="margin: 0 0 6px 0;">{escape(tr(text))}</p>' for text in self.help_paragraphs))
+        self.help_body.verticalScrollBar().setValue(scroll)
 
     def choose_pilot(self):
         path, _ = QFileDialog.getOpenFileName(self, tr('选择 P4 试采、OSC 验收、数据集或 P5 评估结果'),
