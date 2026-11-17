@@ -25,6 +25,7 @@ case "${1:-}" in
   --p5-eval) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/run_p5_eval.py "$@" ;;
   --p5-compare) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/compare_p5_evals.py "$@" ;;
   --lab-camera-study) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/study_lab_cameras.py "$@" ;;
+  --p4d-fingerprint) shift; exec "$ROBOLAB_BACKEND_PYTHON" scripts/dataset_fingerprint.py "$@" ;;
 esac
 if [ ! -x .venv/bin/python ]; then
   echo 'Missing GUI environment. Run scripts/setup.sh first.' >&2

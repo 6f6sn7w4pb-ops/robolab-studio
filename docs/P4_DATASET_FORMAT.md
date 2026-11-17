@@ -115,3 +115,7 @@
 ## 6. LeRobot / openpi
 
 本机后端环境没有 `lerobot` 和 `pyarrow`，按约定也不往原环境安装新包，所以这一步在本机没有执行，`export_manifest.json` 中 `lerobot_written=false`。在实验室装有 openpi 的环境里，按 openpi LIBERO 转换脚本的方式，把 `iter_policy_frames` 给出的每一帧传给 `LeRobotDataset.add_frame`，每条示范结束时调用 `save_episode` 即可。写出后，要用 openpi 自带的统计脚本重新计算归一化统计，再做一次实际加载检查。
+
+## 7. 跨机器核对（指纹）
+
+`scripts/dataset_fingerprint.py write` 为数据集生成指纹：每条示范 `actions_and_contacts.jsonl` 每一行、每一张 PNG 的 SHA256 前 16 位，以及计划哈希和归一化统计的哈希。`check` 用指纹核对另一台机器上重新生成的数据，结论分三种：`identical`、`images_differ_physics_identical`、`physics_differs`。`model.xml` 和 `manifest.json` 不参与比较，因为它们含有本机的资产路径。v1 数据集的指纹在 `docs/fingerprints/p4d_dataset_v1.json.gz`。

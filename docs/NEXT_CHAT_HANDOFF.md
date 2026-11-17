@@ -342,3 +342,4 @@ bash scripts/launch.sh --language-test  # 较长的双语桌面回归
   2. 把实测数字填进 `LabLayout` 和相机参数，叠图核对仿真与真机画面。
   3. 跑通 openpi 官方 LIBERO 例子；写 π₀.₅ LoRA 配置并做短时微调测速。
   4. 用实验室布局生成新数据集（教师随机性、防滚、外观和相机随机化、视频压缩存储）。
+- 补充（同日）：新增数据集指纹 `docs/fingerprints/p4d_dataset_v1.json.gz` 和 `scripts/dataset_fingerprint.py`（入口 `--p4d-fingerprint`）。11 GB 数据集不带去实验室，在实验室重新生成后用 `--p4d-fingerprint check` 核对物理和图像是否与笔记本一致。笔记本上的数据集在核对通过前不要删。作废批次和试采目录的原始记录已删除（约 6.6 GB），摘要文件保留，见各目录的 `DELETED_FILES.txt`。
