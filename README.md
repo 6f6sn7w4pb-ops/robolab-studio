@@ -198,6 +198,8 @@ P5-B 加强实验条件，并支持多次运行的对比。这些选项只用于
 
 说明见 [P5 评估格式](docs/P5_EVAL_FORMAT.md) 第 6–7 节，验收见 [P5-B 报告](docs/P5B_REPORT.md)。
 
+实验室场景：按实测尺寸建模的机械臂桌、物体桌和 D455 相机在 `robolab/lab_scene.py`；外部相机位置、高度和腕部相机倾角的比较见 [实验室相机研究](docs/LAB_CAMERA_STUDY.md)，可用 `bash scripts/launch.sh --lab-camera-study --output-dir 新目录` 复现。
+
 ## 当前边界
 
 - 本次实际场景测试覆盖 LIBERO-Object 的第 0、1 个任务。其他 suite 的任务列表可读取，其全部场景还未逐一验证。

@@ -367,5 +367,12 @@
   "物体颜色": "object colours",
   "无": "none",
   "开": "on",
-  "关": "off"
+  "关": "off",
+  "用途：验证机械臂能否按指令抓对物体的粗端或细端，并记录双相机图像、动作与接触，支持后续数据集和评估开发。": "Purpose: check whether the robot grasps the requested thick or thin end, and record both camera views, actions and contacts for dataset and evaluation development.",
+  "P4 是做什么的？": "What is P4 for?",
+  "怎么操作：选择“粗端”或“细端”，点击“运行 P4 部位抓取”，结束后查看通过状态和双相机结果图。": "How to use: choose the thick or thin end, click Run P4 part grasp, then inspect the verdict and the two camera result images.",
+  "怎样才算通过：两指持续夹住指定部位并达到提升要求，且没有检测到手指与障碍物接触。抓错部位，即使抬起来也不通过。": "What counts as a pass: both fingers hold the requested part for the required lift height and duration, with no detected finger contact with obstacles. Lifting the wrong part does not pass.",
+  "当前运行：这是 P4-A 单次规则自检，使用独立的双部位测试物体，不跟随左侧 LIBERO 任务。策略读取仿真几何真值，尚非真实 VLA 推理。": "Current run: this is the P4-A single-run rule check, using an independent two-part test object rather than the LIBERO task on the left. The policy reads simulator geometry; real VLA inference is not used.",
+  "结果怎么看：左图是桌面相机，右图是腕部相机；白十字是指定部位中心，橙色和蓝色标记是两指接触点。显示的是保存的结果图，标记未做遮挡判断。": "Reading the result: the table camera is on the left and the wrist camera on the right. The white cross marks the requested part centre; orange and blue mark the two fingers' contacts. These are saved result images; marker visibility is not checked for occlusion.",
+  "数据在哪里：“打开结果目录”查看本次记录；“P4 试采汇总”打开已有 P4/P5 结果文件。此按钮不生成整批训练数据，实际 OSC 动作的数据集由后续 P4-C/D 流程采集。": "Where the data go: Open results folder shows this run's records; P4 pilot summary opens existing P4/P5 result files. This run does not build the full training dataset; later P4-C/D workflows collect the actual OSC actions."
 }
