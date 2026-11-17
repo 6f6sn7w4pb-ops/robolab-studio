@@ -24,3 +24,4 @@ jobs:
           python -m unittest discover -s tests -p 'test_p5_eval.py' -v
           python -m unittest discover -s tests -p 'test_p5_extensions.py' -v
           python -m unittest discover -s tests -p 'test_lab_scene.py' -v
+          python -m unittest discover -s tests -p 'test_dataset_fingerprint.py' -v
