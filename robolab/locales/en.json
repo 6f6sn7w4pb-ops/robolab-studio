@@ -54,6 +54,7 @@
   "物理仿真只推进时间。这里单独启动动作来源。\nMock 与规则自检均不是 VLA 模型。": "Physics only advances simulation time. Start an action policy separately here.\nMock and scripted tests do not use a VLA model.",
   "Mock Policy · 无模型自检": "Mock Policy · No model required",
   "OpenVLA-OFT · 首个模型适配器": "OpenVLA-OFT · Initial model adapter",
+  "π₀.₅ · openpi 推理服务适配器": "π₀.₅ · openpi inference service adapter",
   "扫描本地权重（只读）": "Scan local weights (read-only)",
   "尚未扫描；不会自动下载模型。": "Not scanned. Models are never downloaded automatically.",
   "本地模型目录（可暂空）": "Local checkpoint directory (optional)",

@@ -1,0 +1,322 @@
+"""openpi (pi0.5) inference service speaking RoboLab's VLA bridge protocol v1.
+
+Runs in openpi's own environment (Python 3.11 + JAX), never in the simulation backend. Example:
+
+  env -u VIRTUAL_ENV XLA_PYTHON_CLIENT_PREALLOCATE=false \\
+    ~/projects/openpi/.venv/bin/python scripts/serve_openpi_bridge.py \\
+    --config pi05_libero --checkpoint ~/.cache/openpi/openpi-assets/checkpoints/pi05_libero --port 8000
+
+The checkpoint must already be a local directory; this service never downloads anything.
+
+Protocol (the client is robolab.policy.HttpPolicy, used by the 'pi05' VlaAdapter):
+  GET  /health   service, protocol=1, action_space=libero_osc_7d, family=openpi, model_loaded, config, checkpoint
+  GET  /stats    counters since start: requests, errors, clipping, inference and queue latency
+  POST /predict  robolab.observation.v1 -> actions (N x 7), action_space, real_inference, is_mock, clipping report
+
+Input conversion follows openpi's examples/libero/main.py, the client pi05_libero was trained with:
+  - Both JPEG images decode to 224x224x3 uint8. RoboLab images are canonical (top-left origin), i.e.
+    flipud(raw robosuite frame). The openpi client rotates the raw frame by 180 degrees, and
+    raw[::-1, ::-1] == canonical[:, ::-1], so the canonical image is flipped horizontally.
+  - observation/state is RoboLab's 8-D proprio (eef position, axis-angle of the eef quaternion, two gripper
+    qpos), the openpi LIBERO definition. pi05_libero itself does not read it: pi0.5 adds no state token and
+    the config sets discrete_state_input=False.
+  - prompt is the observation's instruction.
+
+Output: openpi's unnormalized LIBERO actions. Values less than CLIP_TOLERANCE outside [-1, 1] are clipped
+and reported in the response; anything further out is returned as an error and nothing is clipped. Errors
+the evaluation should record verbatim come back as a JSON 'error' field with HTTP 200, because that is what
+HttpPolicy reads; malformed HTTP requests get 400/404.
+
+One model on one GPU: inference is serialized with a lock, and concurrent requests wait their turn.
+"""
+import argparse
+import base64
+import io
+import json
+import os
+from pathlib import Path
+import signal
+import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+ROOT = Path(__file__).resolve().parents[1]
+if __name__ == '__main__':
+    # openpi's interpreter must not leave cpython-311 caches inside the RoboLab tree.
+    sys.dont_write_bytecode = True
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+
+import numpy as np  # noqa: E402
+
+from robolab.policy import validate_observation  # noqa: E402  (stdlib-only module)
+
+SERVICE = 'robolab-vla'
+PROTOCOL = 1
+ACTION_SPACE = 'libero_osc_7d'
+FAMILY = 'openpi'
+IMAGE_SIZE = 224
+ACTION_DIM = 7
+MAX_CHUNK = 32
+CLIP_TOLERANCE = 0.05
+MAX_REQUEST_BYTES = 5_000_000
+CAMERA_KEYS = (('agentview', 'observation/image'), ('robot0_eye_in_hand', 'observation/wrist_image'))
+IMAGE_CONVENTION = 'openpi_libero_rotated_180 = canonical[:, ::-1]'
+
+
+class ActionRangeError(ValueError):
+    def __init__(self, message, max_excess):
+        super().__init__(message)
+        self.max_excess = max_excess
+
+
+def canonical_to_openpi_libero(rgb):
+    """Canonical (top-left origin) image -> openpi LIBERO training orientation (raw frame rotated 180 deg)."""
+    return np.ascontiguousarray(rgb[:, ::-1])
+
+
+def decode_image(entry, camera):
+    from PIL import Image
+
+    raw = base64.b64decode(entry['data'], validate=True)
+    with Image.open(io.BytesIO(raw)) as image:
+        rgb = np.asarray(image.convert('RGB'), dtype=np.uint8)
+    if rgb.shape != (IMAGE_SIZE, IMAGE_SIZE, 3):
+        raise ValueError(f'{camera} must be a {IMAGE_SIZE}x{IMAGE_SIZE} RGB image, got shape {list(rgb.shape)}')
+    return rgb
+
+
+def openpi_inputs(observation):
+    """robolab.observation.v1 -> the input dict of openpi's LIBERO policy (LiberoInputs keys)."""
+    validate_observation(observation)
+    inputs = {}
+    for camera, key in CAMERA_KEYS:
+        entry = observation['images'][camera]
+        if entry.get('origin', 'top_left') != 'top_left':
+            raise ValueError(f'{camera}: only canonical top-left-origin images are accepted')
+        inputs[key] = canonical_to_openpi_libero(decode_image(entry, camera))
+    inputs['observation/state'] = np.asarray(observation['proprio'], dtype=np.float64)
+    inputs['prompt'] = observation['instruction']
+    return inputs
+
+
+def bound_actions(actions, tolerance=CLIP_TOLERANCE):
+    """(N, 7) chunk -> (list clipped to [-1, 1], clipped value count, max excess beyond 1).
+
+    Raises ActionRangeError, without clipping anything, when a value is tolerance or more outside [-1, 1].
+    """
+    array = np.asarray(actions, dtype=np.float64)
+    if array.ndim != 2 or array.shape[1] != ACTION_DIM or not 1 <= array.shape[0] <= MAX_CHUNK:
+        raise ValueError(f'expected an (N, {ACTION_DIM}) action chunk with 1 <= N <= {MAX_CHUNK}, '
+                         f'got shape {list(array.shape)}')
+    if not np.isfinite(array).all():
+        raise ValueError('the model returned non-finite action values')
+    excess = np.abs(array)-1.
+    max_excess = max(float(excess.max()), 0.)
+    if max_excess >= tolerance:
+        step, dim = (int(i) for i in np.unravel_index(int(np.argmax(excess)), excess.shape))
+        raise ActionRangeError(f'action outside [-1, 1] by {max_excess:.4f} at step {step}, dim {dim} '
+                               f'(value {array[step, dim]:.4f}); clipping tolerance is {tolerance}', max_excess)
+    return np.clip(array, -1., 1.).tolist(), int((excess > 0).sum()), max_excess
+
+
+class OpenpiBridge:
+    """Request handling around any object with infer(dict) -> {'actions': (N, 7)}: an openpi Policy, or a
+    test fake (test_backend=True, which never claims real inference)."""
+
+    def __init__(self, policy, *, config_name, checkpoint, test_backend=False, tolerance=CLIP_TOLERANCE,
+                 request_log=None):
+        self.policy = policy
+        self.config_name = config_name
+        self.checkpoint = str(checkpoint)
+        self.test_backend = bool(test_backend)
+        self.tolerance = float(tolerance)
+        self.request_log = request_log
+        self.inference_lock = threading.Lock()
+        self.stats_lock = threading.Lock()
+        self.started = time.time()
+        self.counters = dict(requests=0, predictions=0, errors=0, error_kinds={}, clipped_values=0,
+                             clipped_responses=0, max_excess=0., inference_ms_total=0., inference_ms_max=0.,
+                             wait_ms_total=0., wait_ms_max=0.)
+
+    def health(self):
+        return dict(service=SERVICE, protocol=PROTOCOL, action_space=ACTION_SPACE, family=FAMILY,
+                    model_loaded=True, test_backend=self.test_backend, config=self.config_name,
+                    checkpoint=self.checkpoint, clip_tolerance=self.tolerance, image_convention=IMAGE_CONVENTION)
+
+    def stats(self):
+        with self.stats_lock:
+            counters = json.loads(json.dumps(self.counters))
+        done = counters['predictions']
+        counters.update(uptime_s=round(time.time()-self.started, 3), config=self.config_name,
+                        mean_inference_ms=round(counters['inference_ms_total']/done, 3) if done else None,
+                        mean_wait_ms=round(counters['wait_ms_total']/done, 3) if done else None)
+        return counters
+
+    def _record(self, entry, *, error_kind=None, clipped=0, max_excess=0., inference_ms=None, wait_ms=None):
+        with self.stats_lock:
+            counters = self.counters
+            counters['requests'] += 1
+            counters['max_excess'] = max(counters['max_excess'], max_excess)
+            if inference_ms is not None:
+                counters['inference_ms_total'] += inference_ms
+                counters['inference_ms_max'] = max(counters['inference_ms_max'], inference_ms)
+                counters['wait_ms_total'] += wait_ms
+                counters['wait_ms_max'] = max(counters['wait_ms_max'], wait_ms)
+            if error_kind is None:
+                counters['predictions'] += 1
+                counters['clipped_values'] += clipped
+                counters['clipped_responses'] += bool(clipped)
+            else:
+                counters['errors'] += 1
+                counters['error_kinds'][error_kind] = counters['error_kinds'].get(error_kind, 0)+1
+            if self.request_log is not None:
+                self.request_log.write(json.dumps(dict(entry, t=round(time.time(), 3), error_kind=error_kind,
+                                                       clipped_values=clipped, max_excess=max_excess,
+                                                       inference_ms=inference_ms, wait_ms=wait_ms)) + '\n')
+                self.request_log.flush()
+
+    def predict(self, observation):
+        identity = dict(observation_id=observation.get('observation_id') if isinstance(observation, dict) else None,
+                        episode_tick=observation.get('episode_tick') if isinstance(observation, dict) else None)
+        try:
+            inputs = openpi_inputs(observation)
+        except Exception as error:
+            self._record(identity, error_kind='invalid_observation')
+            return dict(identity, error=f'invalid observation: {error}', error_kind='invalid_observation')
+        queued = time.perf_counter()
+        try:
+            with self.inference_lock:
+                began = time.perf_counter()
+                output = self.policy.infer(inputs)
+                ended = time.perf_counter()
+        except Exception as error:
+            self._record(identity, error_kind='inference_error')
+            return dict(identity, error=f'inference failed: {type(error).__name__}: {error}',
+                        error_kind='inference_error')
+        inference_ms, wait_ms = (ended-began)*1000, (began-queued)*1000
+        try:
+            actions, clipped, max_excess = bound_actions(output['actions'], self.tolerance)
+        except ActionRangeError as error:
+            self._record(identity, error_kind='action_out_of_range', max_excess=error.max_excess,
+                         inference_ms=inference_ms, wait_ms=wait_ms)
+            return dict(identity, error=str(error), error_kind='action_out_of_range', max_excess=error.max_excess)
+        except Exception as error:
+            self._record(identity, error_kind='invalid_model_output', inference_ms=inference_ms, wait_ms=wait_ms)
+            return dict(identity, error=f'invalid model output: {error}', error_kind='invalid_model_output')
+        self._record(identity, clipped=clipped, max_excess=max_excess, inference_ms=inference_ms, wait_ms=wait_ms)
+        return dict(identity, actions=actions, action_space=ACTION_SPACE, real_inference=not self.test_backend,
+                    is_mock=self.test_backend, source=f'{FAMILY}:{self.config_name}', chunk_length=len(actions),
+                    clipped_values=clipped, max_excess=max_excess, inference_ms=round(inference_ms, 3),
+                    queue_wait_ms=round(wait_ms, 3))
+
+
+def make_server(bridge, host='127.0.0.1', port=8000):
+    class Handler(BaseHTTPRequestHandler):
+        def reply(self, value, status=200):
+            body = json.dumps(value, allow_nan=False).encode()
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            if self.path == '/health':
+                self.reply(bridge.health())
+            elif self.path == '/stats':
+                self.reply(bridge.stats())
+            else:
+                self.reply({'error': 'not found'}, 404)
+
+        def do_POST(self):
+            if self.path != '/predict':
+                self.reply({'error': 'not found'}, 404)
+                return
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+            except ValueError:
+                length = -1
+            if not 0 < length <= MAX_REQUEST_BYTES:
+                self.reply({'error': 'invalid request size'}, 400)
+                return
+            try:
+                observation = json.loads(self.rfile.read(length))
+            except ValueError:
+                self.reply({'error': 'request body is not JSON'}, 400)
+                return
+            self.reply(bridge.predict(observation))
+
+        def log_message(self, *args):
+            pass  # requests are counted in /stats and optionally written to --request-log
+
+    server = ThreadingHTTPServer((host, port), Handler)
+    server.daemon_threads = True
+    return server
+
+
+def load_openpi_policy(config_name, checkpoint):
+    from openpi.policies import policy_config
+    from openpi.training import config as openpi_config
+
+    config = openpi_config.get_config(config_name)
+    if not isinstance(config.data, openpi_config.LeRobotLiberoDataConfig):
+        raise SystemExit(f'{config_name} is not a LIBERO-format openpi config; this bridge serves {ACTION_SPACE} only')
+    return config, policy_config.create_trained_policy(config, checkpoint)
+
+
+def warm_up(policy):
+    """One inference on openpi's random LIBERO example, so the first real request does not wait for JIT."""
+    from openpi.policies import libero_policy
+
+    began = time.perf_counter()
+    actions = np.asarray(policy.infer(libero_policy.make_libero_example())['actions'])
+    seconds = time.perf_counter()-began
+    if actions.ndim != 2 or actions.shape[1] != ACTION_DIM or not np.isfinite(actions).all():
+        raise SystemExit(f'warm-up produced an unusable action chunk: shape {list(actions.shape)}')
+    return dict(seconds=round(seconds, 3), shape=list(actions.shape),
+                max_abs=round(float(np.abs(actions).max()), 6))
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--config', default='pi05_libero', help='openpi training config name')
+    parser.add_argument('--checkpoint', type=Path, required=True, help='local openpi checkpoint directory')
+    parser.add_argument('--host', default='127.0.0.1')
+    parser.add_argument('--port', type=int, default=8000)
+    parser.add_argument('--request-log', type=Path, help='append one JSON line per /predict request')
+    args = parser.parse_args(argv)
+    checkpoint = args.checkpoint.expanduser().resolve()
+    if not (checkpoint/'params').is_dir():
+        parser.error('--checkpoint must be a local openpi checkpoint directory containing params/ '
+                     '(this service never downloads)')
+    os.environ.setdefault('HF_HUB_OFFLINE', '1')
+    os.environ.setdefault('TRANSFORMERS_OFFLINE', '1')
+    log = lambda **event: print(json.dumps(event, ensure_ascii=False), flush=True)  # noqa: E731
+    log(event='loading', config=args.config, checkpoint=str(checkpoint), python=sys.executable,
+        xla_preallocate=os.environ.get('XLA_PYTHON_CLIENT_PREALLOCATE', '<default: preallocate 75%>'))
+    began = time.perf_counter()
+    _, policy = load_openpi_policy(args.config, checkpoint)
+    load_s = round(time.perf_counter()-began, 3)
+    warm = warm_up(policy)
+    request_log = args.request_log.open('a', encoding='utf-8') if args.request_log else None
+    bridge = OpenpiBridge(policy, config_name=args.config, checkpoint=checkpoint, request_log=request_log)
+    server = make_server(bridge, args.host, args.port)
+    signal.signal(signal.SIGTERM, lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())
+    log(event='ready', host=args.host, port=server.server_port, load_s=load_s, warmup=warm,
+        clip_tolerance=CLIP_TOLERANCE, image_convention=IMAGE_CONVENTION)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+        log(event='stopped', stats=bridge.stats())
+        if request_log is not None:
+            request_log.close()
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
