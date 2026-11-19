@@ -17,3 +17,4 @@ future==1.0.0
 matplotlib==3.10.9
 imageio==2.38.0
 cloudpickle==3.1.2
+h5py==3.16.0
