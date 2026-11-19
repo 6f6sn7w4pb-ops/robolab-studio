@@ -25,7 +25,7 @@ bash scripts/launch.sh
 
 新机器没有仿真环境时，先阅读 [实验室安装说明](docs/INSTALL.md)，再显式执行隔离安装入口 `bash scripts/bootstrap_sim.sh --create-isolated-env`。安装仅作用于项目虚拟环境，不修改实验室已有研究环境。全新安装路线仍待实验室验收。
 
-项目整体的技术总结和实验室阶段的工作计划见 [技术总结与实验室计划](docs/PROJECT_REPORT.md)。平台更新与开发进度见 [开发路线](docs/LAPTOP_ROADMAP.md)；迁移验证范围见 [GitHub 发布与迁移验收](docs/GITHUB_RELEASE.md)。自动化轻量测试不代表真实渲染或 VLA 已通过。
+**接着开发请先读 [实验室阶段交接](docs/LAB_STAGE_HANDOFF.md)**（当前进度、已定决策、下一步）。项目整体的技术总结和实验室阶段的工作计划见 [技术总结与实验室计划](docs/PROJECT_REPORT.md)。平台更新与开发进度见 [开发路线](docs/LAPTOP_ROADMAP.md)；迁移验证范围见 [GitHub 发布与迁移验收](docs/GITHUB_RELEASE.md)。自动化轻量测试不代表真实渲染或 VLA 已通过。
 
 ## 原笔记本配置与功能说明
 

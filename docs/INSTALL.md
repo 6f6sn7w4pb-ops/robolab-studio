@@ -40,8 +40,11 @@ bash scripts/setup.sh
 ```bash
 sudo apt-get update
 sudo apt-get install git python3.10 python3.10-venv libegl1 libgl1 libglfw3 \
-  libopengl0 libxkbcommon-x11-0 libxcb-cursor0 fonts-noto-cjk
+  libopengl0 libxkbcommon-x11-0 libxcb-cursor0 fonts-noto-cjk \
+  build-essential linux-libc-dev python3.10-dev
 ```
+
+最后一行是编译工具：robosuite 1.4.1 依赖 pynput，pynput 依赖 evdev，而 PyPI 上的 evdev 1.9.3 只有源码包，安装时要在本机编译，需要 gcc、Linux 内核头文件（`linux/input.h`）和 Python 头文件（`Python.h`）。原笔记本早已装有这些工具，所以最初的清单漏了它们；2026-11-18 在实验室新机器上安装时发现。
 
 然后在项目根目录执行：
 
