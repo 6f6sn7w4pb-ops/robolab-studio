@@ -354,3 +354,9 @@ bash scripts/launch.sh --language-test  # 较长的双语桌面回归
 - 新机器安装时发现的两处遗漏已修复：`docs/INSTALL.md` 补上编译工具（`build-essential linux-libc-dev python3.10-dev`），`requirements/sim.txt` 补上 `h5py==3.16.0`。
 - 笔记本上的 `outputs/` 已打包存档（只在笔记本上），原目录已删除。
 - 完整现状、决定、下一步和工作规则见 [LAB_STAGE_HANDOFF.md](LAB_STAGE_HANDOFF.md)。
+
+## 23. 零样本评估完成、范围调整（2026-11-20，实验室）
+
+- π₀.₅ 零样本评估（`pi05_libero` 不微调，旧布局扩展测试集 240 条，防滚，`--execute-steps 5`）续跑完成：成功 36/240 = 15.0% [11.0, 20.1]，部位命中 31.7%，抬起 46.7%，碰撞 32.1%，接触时部位正确率 51.8%（粗端 76.1%、细端 27.1%）；43 条伸向障碍物；0 条策略错误（最大夹爪超出 0.0244）；平均推理 111 ms；总用时 27.5 分钟。接口检查全部正确。详见 [LAB_ZEROSHOT_REPORT.md](LAB_ZEROSHOT_REPORT.md)。
+- 用户新决定：只有一台电脑，生成、训练、评估排队；数据 5,000 条（先 2,000）；任务扩展到任意命名部位；物体用 A 参数化日常物体 + B PartNet + C 奇怪形状；四层留出；实验只用英文；新数据和测试全部用实验室布局；相机位置在仿真里定、真机 3D 打印照做；1 TB 移动硬盘作为工作盘，到货前不生成新数据、不正式训练。
+- 新增 [LAB_MASTER_PLAN.md](LAB_MASTER_PLAN.md)（项目全景），更新 [LAB_STAGE_HANDOFF.md](LAB_STAGE_HANDOFF.md)。`pi05-bridge` 仍未推送，下一步是复核并合并它。
