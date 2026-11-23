@@ -130,7 +130,45 @@ class OpenVLAOFTAdapter(VlaAdapter):
         self.model_status.model_loaded=False; self.model_status.real_inference_verified=False
         self.model_status.stage='weights_found' if self.inspection and self.inspection['files_present'] else 'configured'
 
-VLA_ADAPTERS={'mock':MockPolicy,'openvla_oft':OpenVLAOFTAdapter}
+class OpenpiAdapter(VlaAdapter):
+    """openpi (pi0.5) through scripts/serve_openpi_bridge.py, which runs in openpi's own environment.
+
+    The service owns the weights and the GPU; this side only speaks the bridge protocol. checkpoint is
+    accepted for the GUI's configure_policy signature and is replaced by the path the service reports.
+    """
+    display_name='π₀.₅ · openpi 推理服务适配器'
+    def __init__(self,endpoint='',timeout=10,checkpoint=''):
+        self.model_status=ModelStatus(family='openpi',checkpoint=checkpoint)
+        self.endpoint=endpoint
+        self.transport=HttpPolicy(endpoint,timeout) if endpoint else None
+        self.service_config=None
+    def status(self): return dict(self.model_status.as_dict(),service_config=self.service_config)
+    def load(self):
+        if not self.transport: raise ValueError('请设置 openpi 推理服务地址（scripts/serve_openpi_bridge.py）；本操作不会下载权重或占用本机 GPU')
+        health=self.transport.connect()
+        if health.get('family')!='openpi' or health.get('test_backend') is True:
+            raise ValueError('该服务不是已加载真实 openpi 模型的服务；测试后端不能标记为真实模型')
+        if health.get('model_loaded') is not True: raise ValueError('服务尚未加载 openpi 模型')
+        self.service_config=health.get('config')
+        if health.get('checkpoint'): self.model_status.checkpoint=str(health['checkpoint'])
+        self.model_status.stage='model_loaded'; self.model_status.model_loaded=True
+        self.model_status.detail='服务报告模型已加载；等待一次真实推理验证'
+        return self.status()
+    def predict(self,observation):
+        validate_observation(observation)
+        if not self.model_status.model_loaded: raise ValueError('模型尚未加载')
+        result=self.transport.predict(observation)
+        if result.get('real_inference') is not True or result.get('is_mock') is not False:
+            raise ValueError('响应未确认真实模型推理；不会将测试结果标记为 VLA 推理')
+        self.model_status.stage='inference_verified'; self.model_status.real_inference_verified=True
+        self.model_status.detail='真实推理请求返回了有效的 LIBERO 7 维动作'
+        return result
+    def close(self):
+        if self.transport: self.transport.close()
+        self.model_status.model_loaded=False; self.model_status.real_inference_verified=False
+        self.model_status.stage='configured'; self.model_status.detail=ModelStatus.detail
+
+VLA_ADAPTERS={'mock':MockPolicy,'openvla_oft':OpenVLAOFTAdapter,'pi05':OpenpiAdapter}
 
 def register_vla_adapter(name,factory):
     if not name or name in VLA_ADAPTERS or not callable(factory): raise ValueError('Invalid or duplicate VLA adapter')
