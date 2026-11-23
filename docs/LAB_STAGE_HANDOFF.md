@@ -1,8 +1,11 @@
 # 实验室阶段交接（新对话从这里开始）
 
-更新：2026-11-19。笔记本阶段已全部完成，之后的工作都在实验室电脑上进行。本文件汇总了此前所有对话里的背景、已经做出的决定、当前进度和下一步。新的对话（实验室电脑上的 Claude Code、云端的 Claude Code，或 claude.ai 网页对话）请先完整读完本文件，再动手。
+更新：2026-11-20。笔记本阶段已全部完成，之后的工作都在实验室电脑上进行。本文件汇总了此前所有对话里的背景、已经做出的决定、当前进度和下一步。新的对话（实验室电脑上的 Claude Code、云端的 Claude Code，或 claude.ai 网页对话）请先完整读完本文件，再动手。
 
-本文与其他文档冲突时，**以本文为准**：其他文档里有些内容写于更早的时候，比如“实验室是 A100 80GB”，那是错的。
+- **整体分析**请再读 [LAB_MASTER_PLAN.md](LAB_MASTER_PLAN.md)：从开始到现在再到以后的全景，包括所有建模尺寸、实验室布局、新数据生成器的设计要求、与之前计划的不同。
+- 零样本评估的完整结果见 [LAB_ZEROSHOT_REPORT.md](LAB_ZEROSHOT_REPORT.md)。
+
+本文与其他文档冲突时，**以本文为准**：其他文档里有些内容写于更早的时候，比如“实验室是 A100 80GB”“数据集 1–2 万条”，那是旧的。
 
 ---
 
@@ -11,13 +14,13 @@
 **实验室电脑上的 Claude Code**（主要工作方式）：
 
 ```text
-这是我的毕业设计项目，之前的工作在另一台笔记本上完成，现在在实验室继续。请全程用中文，讲解要详细易懂。先完整阅读 ~/projects/robolab-studio/docs/LAB_STAGE_HANDOFF.md，再读 ~/lab_logs/PROGRESS.md（实验室电脑上的进度记录），然后按交接文档第 6 节的顺序，从第一个未完成的任务接着做。动手之前先告诉我你的理解和计划。
+这是我的毕业设计项目，之前的工作在另一台笔记本上完成，现在在实验室继续。请全程用中文，讲解要详细易懂。先完整阅读 ~/projects/robolab-studio/docs/LAB_STAGE_HANDOFF.md 和 docs/LAB_MASTER_PLAN.md，再读 ~/lab_logs/PROGRESS.md（实验室电脑上的进度记录），然后按交接文档第 6 节的顺序，从第一个未完成的任务接着做。动手之前先告诉我你的理解和计划。
 ```
 
 **云端 claude.ai 网页对话**（讨论方案、写论文；它不能在实验室电脑上运行命令）：先把第 9 节列出的文件上传到对话或项目知识库，再说：
 
 ```text
-这是我的毕业设计项目。请先阅读我上传的 LAB_STAGE_HANDOFF.md（交接文档）和其他文件，全程用中文、讲解详细易懂。之后我会在实验室电脑上用 Claude Code 执行具体操作，请你帮我分析结果、规划步骤、撰写论文。
+这是我的毕业设计项目。请先阅读我上传的 LAB_STAGE_HANDOFF.md（交接文档）、LAB_MASTER_PLAN.md（项目全景）和其他文件，全程用中文、讲解详细易懂。之后我会在实验室电脑上用 Claude Code 执行具体操作，请你帮我分析结果、规划步骤、撰写论文。
 ```
 
 ---
@@ -26,22 +29,24 @@
 
 - **题目**：Gripper-Centric Contact for Zero-Shot VLA Grasping of Unseen Objects（面向未见物体零样本 VLA 抓取的夹爪中心接触建模）。
 - **研究问题**：在相同的训练数据预算和统一的评估协议下，在 VLA 策略中引入**夹爪坐标系的接触位置监督**，能否提高**未见刚性物体**上“**按语言指定部位抓取**”的成功率，并减少碰撞？
-- **任务**：桌上一根两段式短棒（一段粗、一段细，同色），旁边有障碍物。指令说抓粗端或细端，机械臂要抓对、抬起、不碰障碍。训练只见过长方体族和圆柱族，椭球族整族留作“未见形状”测试。
+- **任务（2026-11-20 起）**：桌上一个目标物体和 0–2 个障碍物，英文指令说明要抓物体的**哪个部位**（例如杯子的把柄），机械臂要抓对、抬起、不碰障碍。物体来自 **A 参数化日常物体、B PartNet 模型库、C 奇怪形状**三类；用**四层留出**检验推广（同类别新个体、整类别、说法、部位类型）。
+- **前期任务**（至今所有数据和评估）：一根两段式短棒（一段粗、一段细，同色），指令说抓粗端或细端；训练只见过长方体族和圆柱族，椭球族整族留作未见测试。它是新任务的最简特例，结果保留。
 - **基线模型**：π₀.₅（openpi）。参考论文 G³VLA（相机几何）、π₀.₅、OpenVLA 都在 LIBERO 上做仿真评测。
 - **硬件**：Franka Emika Panda（FER）机械臂；两台 Intel RealSense D455，一台装在腕部、一台在外部，只用 RGB。真机实验是拓展目标。
 - **平台**：RoboLab Studio（本仓库）。MuJoCo 2.3.7 + robosuite 1.4.1 + LIBERO 的本地仿真工作站，包含桌面界面、接触采样、数据集生成、批量闭环评估。
 
-完整的技术总结和实验室计划见 [PROJECT_REPORT.md](PROJECT_REPORT.md)，写得最详细，适合写论文时引用。
+完整的技术总结见 [PROJECT_REPORT.md](PROJECT_REPORT.md)（原理讲解最详细，适合写论文时引用）；现在的全景和以后的计划见 [LAB_MASTER_PLAN.md](LAB_MASTER_PLAN.md)。
 
 ## 2. 用户的工作习惯和规则（请严格遵守）
 
-- **全程中文**，讲解要详细、通俗；用户对仿真和机器人底层不熟悉，需要解释原理时从基础讲起。
+- **全程中文**，讲解要详细、通俗；用户对仿真和机器人底层不熟悉，需要解释原理时从基础讲起。实验数据和 VLA 指令只用英文。
 - **只报告实际验证过的结果**。“有按钮”“日志写已加载”“Mock 返回了动作”都不算通过；规则教师（读取仿真真值）的成功率不能说成模型性能。失败的证据要保留。
 - **不要升级、降级、重装已有环境**，不要修改第三方库源码、显卡驱动、CUDA、全局 LIBERO 配置。新东西都装进隔离环境。
-- **需要 sudo、删除文件、推送代码这类不可撤销或对外的操作，先问用户。**
-- **提交和推送只在用户要求时做**。先建分支，通过 PR 合并进 `main`；提交作者沿用仓库已有提交的身份（`git log` 可查）。提交说明末尾加 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`，PR 描述末尾加 `🤖 Generated with [Claude Code](https://claude.com/claude-code)`。
+- **需要 sudo、删除文件、格式化磁盘、推送代码这类不可撤销或对外的操作，先问用户。** sudo 由用户在单独的 WSL 终端里执行（Claude Code 的 `!` 前缀不能输入 sudo 密码）。
+- **提交和推送只在用户要求时做**。先建分支，通过 PR 合并进 `main`；提交作者沿用仓库已有提交的身份（`git log` 可查，实验室电脑上没有 git 用户配置，用 `git -c user.name=... -c user.email=...` 临时指定）。提交说明末尾加 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`，PR 描述末尾加 `🤖 Generated with [Claude Code](https://claude.com/claude-code)`。检查状态用 `git --no-optional-locks status`。
 - 不要提交 `outputs/`、虚拟环境、模型权重、数据集、个人配置。仓库是**公开的**，不要写入个人信息。
 - 推送后要确认 GitHub 上的自动检查（Lightweight checks）通过，再说完成。
+- 动手之前先说明理解和计划；跑完一步先报告和分析，等用户看过再做下一步。
 
 ## 3. 已经做出的决定（不要再推翻，除非用户提出）
 
@@ -49,11 +54,18 @@
 | --- | --- | --- |
 | 不换 ManiSkill3 | 继续用 MuJoCo + LIBERO | 老师让比较过。参考论文都用 LIBERO；官方 `pi05_libero` 权重和评测直接可用；已验证的平台和数据能保留 |
 | 只用 LoRA 微调 | openpi 的 **JAX 版**（PyTorch 版不支持 LoRA） | 老师要求（担心全参数不收敛）；实验室显卡 48 GB，全参数需要 70 GB 以上，本来也跑不了 |
-| π₀.₅ 的 LoRA 配置要自己写 | 参照 openpi 里 `pi0_libero_low_mem_finetune`：`paligemma_variant="gemma_2b_lora"`、`action_expert_variant="gemma_300m_lora"`、`freeze_filter=...get_freeze_filter()`、`ema_decay=None`，再加上 `pi05=True, action_horizon=10, discrete_state_input=False` | openpi 只有 π₀ 的 LoRA 配置，没有 π₀.₅ 的；能否正常训练要实测 |
+| π₀.₅ 的 LoRA 配置要自己写 | 参照 openpi 里 `pi0_libero_low_mem_finetune`：`paligemma_variant="gemma_2b_lora"`、`action_expert_variant="gemma_300m_lora"`、`freeze_filter=...get_freeze_filter()`、`ema_decay=None`，再加上 `pi05=True, action_horizon=10, discrete_state_input=False`（草案见 LAB_MASTER_PLAN 14.1 节） | openpi 只有 π₀ 的 LoRA 配置，没有 π₀.₅ 的；能否正常训练要实测 |
+| 只有一台电脑 | 没有外部服务器；生成数据、训练、评估全在实验室这台电脑上，**排队轮流做** | 训练时显卡基本被占满 |
+| 任务扩展 | 从“粗端/细端”扩展到**任意命名部位**；物体用 **A 参数化日常物体 + B PartNet + C 奇怪形状** | 用户 2026-11-20 决定 |
+| 四层留出 | 同类别新个体、整类别留出、留出说法、留出部位类型；留出的部位类型要出现在训练见过的类别上 | 用户 2026-11-20 决定；测试集结构见 LAB_MASTER_PLAN 13.6 节 |
+| 只用英文 | 实验数据和评估只用英文指令（界面仍中英文切换） | 用户 2026-11-20 决定 |
+| 数据集 | **5,000 条**，先 2,000 条试训；按**实验室布局**生成；小数据集是大数据集的前缀，扩充不重新生成；5,000 条时原始记录、HDF5、LeRobot 三份都保留 | 用户 2026-11-20 决定（原计划 1–2 万条）。现有 200 条是旧布局，用于调试训练流程 |
+| 全部改用实验室布局 | 新数据和新测试场景都用实验室布局（两张桌子、真实相机位置）；旧布局的 240 条测试和零样本结果作为前期工作保留，规则教师和零样本要在新布局上重跑 | 用户 2026-11-20 决定 |
+| 相机位置 | **在仿真里定好，真机支架按仿真位置 3D 打印**；不再测量腕部支架；仍需读两台 D455 的内参（用户下周读） | 导师意见（2026-11-20） |
 | 外部相机 | 物体桌**正对面**、离地约 **1.30 m**（比桌面高约 56 cm、远边外约 30 cm、俯视约 43°）；备选左侧 1.30 m | 仿真对比结果，见 [LAB_CAMERA_STUDY.md](LAB_CAMERA_STUDY.md) |
-| 腕部相机要倾斜 | 倾角 ≈ arctan(偏移 ÷ 镜头到指尖中心距离) − 20°；偏移 6/8/10 cm 时约倾 10°/20°/30° | 同上。实际偏移和高度要在装好支架后量 |
-| 数据集 | 目标 1–2 万条，按实验室布局（两张桌子、真实相机位置）重新生成；先 2,000 条试训 | 现有 200 条是旧布局（物体在地面、LIBERO 默认相机），用于调试训练流程 |
+| 腕部相机要倾斜 | 倾角 ≈ arctan(偏移 ÷ 镜头到指尖中心距离) − 20°；偏移 6/8/10 cm 时约倾 10°/20°/30°；具体值在仿真里选定 | 同上 |
 | 训练、评估都用实验室机器生成的数据 | 用 `outputs/p4d_lab` 及以后在实验室生成的数据 | 不同显卡渲染的图像有细微差别；训练和评估同一台机器才能保证输入一致 |
+| 磁盘 | 第 1–4 步在 C 盘做，始终留 15 GB 以上；1 TB 移动固态硬盘作为工作盘（第 7 节）；**硬盘到之前不生成新数据集、不开始正式训练** | 用户 2026-11-20 决定 |
 
 ## 4. 实验室电脑
 
@@ -61,16 +73,17 @@
 | --- | --- |
 | 系统 | Windows + WSL，发行版 `Ubuntu-22.04`；项目都在 WSL 用户主目录 `~` 下 |
 | 显卡 | NVIDIA **RTX 6000 Ada，48 GB**，驱动 596.71，CUDA 13.2（**不是 A100 80GB**） |
-| 空间 | WSL 的虚拟磁盘在 **C 盘**，C 盘剩约 70 GB（下载 `pi05_libero` 后）。用户有一块 1TB 移动固态硬盘可以一直插着，正式训练前要处理空间（见第 7 节） |
-| 已有的别人的环境 | `~/vla/.venv`：**不要用，也不要改**。里面的 robosuite 版本不对，还误装了无关的 `robotsuite`。终端里可能默认激活着它，运行我们的命令前要 `deactivate` 或去掉 `VIRTUAL_ENV` |
+| 内存 / CPU | 30 GiB / 20 核；每个仿真评估进程约 2.7 GB 内存 |
+| 空间 | WSL 的虚拟磁盘在 **C 盘**，2026-11-20 剩 **98 GB**。**查看真实剩余用 `df -h /mnt/c`**（WSL 里 `df -h /` 显示的是虚拟磁盘上限，不准），始终留 15 GB 以上 |
+| 已有的别人的环境 | `~/vla/.venv`：**不要用，也不要改**。里面的 robosuite 版本不对，还误装了无关的 `robotsuite`。终端里可能默认激活着它，运行我们的命令前要 `deactivate` 或去掉 `VIRTUAL_ENV`（`uv pip` 会优先装进激活的环境） |
 | 用户权限 | 有 WSL 里的 sudo 密码；sudo 命令由用户自己执行 |
 
 **已装好的东西：**
 
 | 内容 | 位置 | 版本 |
 | --- | --- | --- |
-| RoboLab Studio | `~/projects/robolab-studio` | 本仓库 `main` |
-| 仿真环境 | `~/projects/robolab-studio/.venv-sim` | Python 3.10.12；MuJoCo 2.3.7；robosuite 1.4.1；NumPy 1.26.4；LIBERO 0.1.0（提交 `8f1084e3132a39270c3a13ebe37270a43ece2a01`，在 `third_party/LIBERO`）；torch 2.2.0+cpu；h5py 3.16.0（手动补装） |
+| RoboLab Studio | `~/projects/robolab-studio` | 本仓库；实验室本地还有分支 `pi05-bridge`（未推送） |
+| 仿真环境 | `~/projects/robolab-studio/.venv-sim` | Python 3.10.12；MuJoCo 2.3.7；robosuite 1.4.1；NumPy 1.26.4；LIBERO 0.1.0（提交 `8f1084e3132a39270c3a13ebe37270a43ece2a01`，在 `third_party/LIBERO`）；torch 2.2.0+cpu；h5py 3.16.0 |
 | 界面环境 | `~/projects/robolab-studio/.venv` | PySide6 6.8.3 |
 | uv | `~/.local/bin/uv` | 0.13.9 |
 | openpi | `~/projects/openpi` | 提交 `215abfb`（2026-08-24）；环境 `.venv`（Python 3.11.18，jax/jaxlib 0.5.3，flax 0.10.2，约 7.7 GB）；JAX 能用显卡 |
@@ -104,67 +117,80 @@
    - 规则教师评估 `outputs/lab_eval_teacher`：64/64 成功，阻挡对照 4/4 检出碰撞，与 `p4d_lab` 逐帧比对 68/68 一致，各项检查全部为 true。
 3. **openpi**：安装成功，没有用 Docker。下载 `pi05_libero`（匿名下载，无需谷歌云账号，约 110 MB/s）。
 4. **推理测试**（随机假观测）：输出 (10, 7)，全部有限；加载 9.0 s，首次推理 19.8 s（编译），之后平均 **88 ms**；占显存约 **8.4 GiB**。夹爪一维略超 ±1（−1.0007 ~ 1.0109）。
-5. **桥接服务**（据实验室进度记录，结果尚未复核）：`scripts/serve_openpi_bridge.py`、`robolab/policy.py` 里的 `OpenpiAdapter`（注册名 `pi05`）、`tests/test_openpi_bridge.py`，提交在**本地分支 `pi05-bridge`（`37b4e4c`），未推送**。
-6. **零样本评估** `outputs/lab_eval_pi05_libero_zeroshot`：已开跑，下班时停在一半，可用 `--resume` 续跑。
+5. **桥接服务**：`scripts/serve_openpi_bridge.py`、`robolab/policy.py` 里的 `OpenpiAdapter`（注册名 `pi05`）、`tests/test_openpi_bridge.py`（14 项，不依赖显卡）；后端测试 112 项通过；2 条小规模试跑通过。提交在**本地分支 `pi05-bridge`（代码 `37b4e4c`，另有一个标记“未完成”的空提交 `bc961fe`），未推送**。
 
-日志：实验室电脑的 `~/lab_logs/2026-11-18/` 和 `outputs/p4d_lab/logs/`；进度记录：`~/lab_logs/PROGRESS.md`（含确切命令）。
+### 5.3 2026-11-20
+
+1. **零样本评估完成**（`outputs/lab_eval_pi05_libero_zeroshot`，旧布局 240 条）：成功 **36/240 = 15.0%** [11.0, 20.1]；部位命中 31.7%；抬起 46.7%；碰撞 32.1%；接触时部位正确率 51.8%（粗端 76.1%，细端 27.1%，模型基本不区分部位）；43 条把机械臂伸向障碍物；**0 条策略错误**（最大夹爪超出 0.0244，全部在裁剪范围内）；服务端平均推理 111 ms；总用时 27.5 分钟。接口检查（朝物体移动、夹爪开合、控制和图像方向）全部正确。复跑不一致是因为 openpi 的采样噪声取决于请求到达服务的顺序。详见 [LAB_ZEROSHOT_REPORT.md](LAB_ZEROSHOT_REPORT.md)。
+2. 和用户定下了第 3 节标注 2026-11-20 的决定；写了 [LAB_MASTER_PLAN.md](LAB_MASTER_PLAN.md)。
+
+日志：实验室电脑的 `~/lab_logs/2026-11-18/`、`~/lab_logs/2026-11-20/` 和 `outputs/p4d_lab/logs/`；进度记录：`~/lab_logs/PROGRESS.md`（含确切命令）。
 
 ## 6. 下一步（按顺序）
 
 | # | 任务 | 完成标志 |
 | --- | --- | --- |
-| 1 | 续跑 π₀.₅ 零样本评估：先按 `PROGRESS.md` 启动桥接服务，再用同一个输出目录加 `--resume` | 240 条跑完；报告成功率、部位命中率、碰撞率（分 2×2 格子）、失败原因、裁剪次数、推理延迟。成功率很低是预期的，这一行是论文的“不微调”基准 |
-| 2 | 复核桥接服务并合并 `pi05-bridge` | 测试通过；从 GitHub `git pull` 最新 `main` 后，把分支推上去开 PR，CI 通过后合并（推送前问用户） |
-| 3 | 数据集转 LeRobot 格式 | 用 `robolab.p4_dataset_export.iter_policy_frames(path, language='en', image_convention='libero_rotated_180')` 逐帧写入 `LeRobotDataset`；读回检查图像方向、帧数（训练集 120 条 / 26,640 帧）、字段 |
-| 4 | 写 π₀.₅ LoRA 配置并做短时训练 | 先下载 `pi05_base`；用 openpi 的脚本算归一化统计；跑几百步，记录每步耗时、显存峰值、**每个检查点的大小**，损失在下降 |
-| 5 | 处理空间 | 根据第 4 步实测的检查点大小，开启 WSL 稀疏模式或把 WSL 搬到移动固态硬盘；调整检查点保留策略（`keep_period`、`save_interval`） |
-| 6 | 实验室布局的新数据集 | 先确定相机：量腕部支架偏移和高度、确认外部相机位置、读两台 D455 的内参（`rs-enumerate-devices -c`，注意 WSL 默认看不到 USB 相机），填进 `robolab/lab_scene.py`，仿真画面与真机照片对比。再加入：教师随机性、防滚、外观和相机随机化、视频压缩存储；先生成 2,000 条 |
-| 7 | 训练基线和本文方法，做对比评估 | 见第 8 节 |
+| 1 | ~~续跑 π₀.₅ 零样本评估~~ | **已完成（2026-11-20）**，见 5.3 节 |
+| 2 | 复核桥接服务并合并 `pi05-bridge` | 测试通过；从 GitHub 拉最新 `main` 合并后，把分支推上去开 PR，CI 通过后合并（**推送前问用户**）。同时讨论：是否让采样噪声由“条目 + tick”确定（`Policy.infer` 支持传入 `noise`），以及在官方 LIBERO-Object 任务上复现一次成绩以证明接口正确 |
+| 3 | 现有数据转 LeRobot 格式 | 用 `robolab.p4_dataset_export.iter_policy_frames(path, language='en', image_convention='libero_rotated_180')` 逐帧写入 `LeRobotDataset`；读回检查图像方向、帧数（训练集 120 条 / 26,640 帧）、字段；**记录转换后的大小**；接触相关标签（预期接触点、部位中心等）作为额外字段存进同一份数据，按“部位表”设计、不写死粗端/细端；**核实 openpi 用的 LeRobot 版本（提交 `0cf86487`）能否往已有数据集追加** |
+| 4 | 写 π₀.₅ LoRA 配置并做短时训练 | 先下载 `pi05_base`；用 openpi 的脚本算归一化统计；跑几百步，记录**每步耗时、显存真实峰值**（设 `XLA_PYTHON_CLIENT_PREALLOCATE=false`，或读 JAX `memory_stats` 的 `peak_bytes_in_use`；在 `XLA_PYTHON_CLIENT_MEM_FRACTION=0.9` 下 nvidia-smi 只显示预占的 90%，不是真实需求）、**内存峰值、每个检查点的大小**，损失在下降。**这里定下的批量大小，之后所有要比较的模型都用同一个** |
+| 5 | 相机 | 在仿真里定腕部相机偏移、高度、倾角和外部相机位置，输出 3D 打印支架的尺寸说明；用户读两台 D455 内参（Windows 上 `rs-enumerate-devices -c`），填进 `robolab/lab_scene.py`；装好后真机照片与仿真画面叠图核对 |
+| 6 | 工作盘（移动硬盘到货后） | 按第 7 节建 vhdx 工作盘并挂进 WSL；`outputs/` 和 openpi 检查点目录换成链接 |
+| 7 | 新数据生成器（实验室布局） | 先写设计说明给用户和导师确认；再分阶段实现：A0（通用部位格式 + 通用规则教师，用两段式短棒验证）→ A（参数化日常物体）→ 按四层留出生成新测试场景（约 360 条），跑规则教师和零样本（新的 M0）→ 生成 2,000 条试训 → B（PartNet）、C（奇怪形状）→ 扩到 5,000 条。详见 LAB_MASTER_PLAN 第 12–13 节 |
+| 8 | 训练基线和本文方法，做对比评估 | 见第 8 节 |
 
 ## 7. 注意事项和已知问题
 
-- **夹爪裁剪规则**：评估框架把超出 [−1, 1] 的动作判为策略错误。桥接服务的规则是：超出不到 0.05 的裁剪到 ±1 并记录次数和最大超出量；超出更多的报错。
+- **夹爪裁剪规则**：评估框架把超出 [−1, 1] 的动作判为策略错误。桥接服务的规则是：超出不到 0.05 的裁剪到 ±1 并记录次数和最大超出量；超出 0.05 及以上的报错、不裁剪。零样本评估中最大超出 0.0244，只发生在夹爪一维。
 - **图像方向**：数据集和评估用的是“规范图像”（左上角为原点）。`pi05_libero` 按 openpi 的 LIBERO 示例训练，原始 robosuite 图像旋转 180°，**等价于对规范图像做水平翻转 `image[:, ::-1]`**。训练和推理必须用同一种方向。
-- **8 维状态**与 openpi LIBERO 示例相同：末端位置 3 + 末端姿态轴角 3 + 两指关节 2。夹爪朝下时轴角在 ±π 附近跳变，数据里有完整的夹爪位姿矩阵，必要时可换成连续表示。
-- **动作块**：`pi05_libero` 一次输出 10 步，按官方做法每次执行前 5 步（评估用 `--execute-steps 5`），训练和评估要一致。评估时 `--timeout 60`，推理服务要常驻并预热。
-- **检查点占空间**：openpi 默认每 1,000 步存一次、永久保留每 5,000 步的检查点；按权重约 12 GB 估算，一轮 3 万步训练可能留下七八十 GB。正式训练前必须处理空间问题。
-- **空间回收**：在 WSL 里删文件不会让 C 盘变大。WSL 3.x 可用 `wsl --manage Ubuntu-22.04 --set-sparse true` 开启稀疏模式（先 `wsl --shutdown`）；或用 `wsl --manage Ubuntu-22.04 --move <新位置>` 搬到移动硬盘。两者都要在 Windows 的 PowerShell 里做，会关掉 WSL 里的 Claude Code。
-- **相机视场角**：D455 彩色相机规格有两种说法（90°×65° 或 86°×57°），仿真里两种都算过，结论相同；以实际读出的内参为准。
-- **WSL 与 USB 相机**：WSL 默认看不到 USB 设备，需要 `usbipd-win`（Windows 管理员安装），且 RealSense 在 WSL 里不一定稳定。读内参可以在 Windows 上做，或在控制机械臂的 Ubuntu 电脑上做。
+- **8 维状态**与 openpi LIBERO 示例相同：末端位置 3 + 末端姿态轴角 3 + 两指关节 2。夹爪朝下时轴角在 ±π 附近跳变，数据里有完整的夹爪位姿矩阵，必要时可换成连续表示。`pi05_libero` 本身不读状态（π₀.₅ 不加状态 token，且 `discrete_state_input=False`）。
+- **动作块**：`pi05_libero` 一次输出 10 步，按官方做法每次执行前 5 步（评估用 `--execute-steps 5`），训练和评估要一致。评估时 `--timeout 60`，推理服务要常驻并预热，服务设 `XLA_PYTHON_CLIENT_PREALLOCATE=false`（否则 JAX 预占约 36 GB，4 个仿真进程的渲染会抢不到显存）。
+- **停止评估的顺序**：先停评估（对主进程发 SIGTERM，它会等每个进程做完当前这条），再停服务；先停服务的话，正在跑的条目会被记成策略错误，且 `--resume` 不会重跑。`--resume` 时参数从 `eval_config.json` 读，`summary.json` 的 `elapsed_wall_s` 只记本次用时。
+- **复跑噪声**：openpi 每处理一次请求就从同一个随机数种子切出新噪声，噪声取决于请求到达顺序；所以模型评估的复跑不会逐字节一致（规则教师会）。
+- **检查点占空间**：openpi 默认每 1,000 步存一次、永久保留每 5,000 步的检查点；按权重约 12 GB 估算，一轮 3 万步训练可能留下七八十 GB。正式训练前用 `keep_period`、`save_interval` 控制。
+- **工作盘（1 TB 移动固态硬盘，预计 2026-11-20 的下一周到货）**：格式化为 NTFS，固定盘符；在上面建一个 vhdx 虚拟磁盘，挂进 WSL（`wsl --mount --vhd <路径> --name robodata`，挂载点 `/mnt/wsl/robodata`），格式化成 ext4；**用 mkfs 格式化之前，必须先把 `lsblk` 的输出给用户确认**；再把 `outputs/` 和 openpi 的检查点目录换成指向它的链接；`outputs` 换成链接后，在 `.git/info/exclude` 里加一行 `/outputs`（`.gitignore` 里的 `outputs/` 不匹配同名链接）。5,000 条时三份数据都能保留；只有扩到 1 万条才需要“每批转换后清理中间文件”，自动删除默认关闭，要用户同意才打开。
+- **空间回收**：在 WSL 里删文件不会让 C 盘变大。如需回收，WSL 3.x 可用 `wsl --manage Ubuntu-22.04 --set-sparse true`（先 `wsl --shutdown`），要在 Windows 的 PowerShell 里做，会关掉 WSL 里的 Claude Code。
+- **相机视场角**：D455 彩色相机规格有两种说法（90°×65° 或 86°×57°），以实际读出的内参为准。openpi 把 1280×800 缩放到 224×140 再补边成 224×224，新数据的仿真图像应按同样方式处理。
+- **WSL 与 USB 相机**：WSL 默认看不到 USB 设备，读内参在 Windows 上做。
 - **控制真机的电脑**：Franka 一般接一台装了实时内核的 Ubuntu 电脑，很可能不是当前这台，需要确认。
+- **现有代码写死了“两个部位”**：`p4_parts.PARTS`、`p4_dataset_export.PART_IDS`（2 表示两段都有）、`p5_eval.other_part()`、按部位的指令模板、界面里的 `PARTS`。新生成器要改成按“部位表”的通用格式。
+- **`lab_xml_hook` 只把旧场景的物体抬到桌面高度**，水平位置仍是旧范围；新生成器要按物体桌（底座前 0.30–0.70 m、左右 ±0.40 m）重新采样。
 
 ## 8. 研究方案（训练与对比实验）
 
+详细设计见 [LAB_MASTER_PLAN.md](LAB_MASTER_PLAN.md) 第 13–14 节和 [PROJECT_REPORT.md](PROJECT_REPORT.md) 第 17.4 节。
+
 ### 8.1 接触监督的建议方案
 
-详见 [PROJECT_REPORT.md](PROJECT_REPORT.md) 第 17.4 节。
-
-- **监督目标（建议）**：“预期接触”。找到一条示范中抓稳的时刻，取两指接触点（世界坐标，抓取前物体静止）；对之前每一帧，用当时的夹爪位姿换算到夹爪坐标系；抓稳后用当前帧的真实接触。所需数据都已经在训练视图里。
+- **监督目标（建议）**：“预期接触”。找到一条示范中抓稳的时刻，取两指接触点（世界坐标，抓取前物体静止）；对之前每一帧，用当时的夹爪位姿换算到夹爪坐标系；抓稳后用当前帧的真实接触。这个定义和部位种类无关，扩展到任意命名部位后同样适用。
 - **接入方式（建议先做）**：把预期接触点（两指共 6 个数）拼在动作向量后面一起预测，推理时只取前 7 维。之后可以改成辅助预测头。
-- **关键对照**：用“指定部位中心”代替接触点做监督，以区分“接触”本身的作用和“给一个目标点”的作用。
+- **关键对照**：用“指定部位中心”代替接触点做监督（M3），以区分“接触”本身的作用和“给一个目标点”的作用。
+- 模型：M0 官方权重不微调；M1 基线 LoRA；M2 本文方法；M3 部位中心对照（以上必做）；M4 当前帧接触、M5 加相机几何、M6 外观变化（视时间）。同样数据、步数、批量。
 
 ### 8.2 更完整的实施方案（用户整理的 Book1.xlsx）
 
 用户整理过一份更完整的实施表，要点如下。设计上采纳，但分阶段做，先做最小版本：
 
-- 五类参数化形状及区域划分；指令模板加语言模型扩写；0–2 个干扰物；起始姿态扰动。
+- 五类参数化形状及区域划分（现在扩展为 A/B/C 三类物体来源和部位表）；指令模板加语言模型扩写（只英文）；0–2 个干扰物；起始姿态扰动。
 - 示范用“采样对跖抓取 + 运动规划”生成，20–30% 的轨迹中途注入偏移再纠正。
 - 标签：两级查询区域的占据（目标/障碍/空）、指尖最终接触点（变换到当前夹爪坐标系）、指尖到目标表面的有符号距离。
 - 模型改动：射线嵌入（相机几何）、冻结的 VGGT/π³ 特征适配器、占据头和接触头；损失 = 动作 + 占据 + 接触，λ 初始 0.1。
 - 主对比：**π₀.₅ 原版、相机坐标系监督（深度）、本方法（夹爪坐标系监督）**，同一检查点、同样数据和步数；资源允许时每组 2–3 个随机种子。
 - 消融：去掉接触头、障碍物通道、几何特征、射线嵌入；线性探针。
 
-建议的最小版本顺序：环境和 2–3 类形状 → 2,000 条轨迹 → 接触标签和 π₀.₅ 原版基线 → 接触头和相机坐标系对照 → 主对比评估 → 之后再加占据、射线嵌入、纠错段、扩到 2 万条，VGGT 放最后。实验室只有一张 48 GB 显卡，训练只能排队跑，要严格控制训练次数。
+建议的最小版本顺序：实验室布局 + 通用部位格式 + 通用规则教师 → 参数化日常物体 → 新测试场景和新 M0 → 2,000 条 → 接触标签和 π₀.₅ 原版基线 → 接触头和相机坐标系对照 → PartNet 和奇怪形状、扩到 5,000 条 → 主对比评估 → 之后再加占据、射线嵌入、纠错段，VGGT 放最后。实验室只有一张 48 GB 显卡，训练只能排队跑，要严格控制训练次数。
 
 ### 8.3 评估
 
-在 240 条扩展测试集上评估，加防滚；再加 `--appearance all` 做外观鲁棒性。所有模型用同一批场景，用 `--p5-compare` 汇总：Wilson 区间、McNemar 配对检验、可直接放进论文的表格和图。主要指标：未见形状族上的成功率；次要指标：部位命中、碰撞、接触时部位正确率、留出说法、外观变化。
+在实验室布局的新测试集上评估（约 360 条，四层留出），加防滚；再加 `--appearance all` 做外观鲁棒性。所有模型用同一批场景，用 `--p5-compare` 汇总：Wilson 区间、McNemar 配对检验、可直接放进论文的表格和图。主要指标：**整类别留出**上的成功率；次要指标：部位命中、碰撞、接触时部位正确率、留出说法、留出部位类型、外观变化。旧布局 240 条上的结果（规则教师 240/240、零样本 15.0%）作为前期工作。
 
 ## 9. 文档索引
 
 | 想了解 | 读这个 |
 | --- | --- |
-| 全部背景、技术细节、实验室计划 | [PROJECT_REPORT.md](PROJECT_REPORT.md) |
+| 全景：从开始到以后、建模尺寸、布局、新决定、与之前的不同 | [LAB_MASTER_PLAN.md](LAB_MASTER_PLAN.md) |
+| 零样本评估结果 | [LAB_ZEROSHOT_REPORT.md](LAB_ZEROSHOT_REPORT.md) |
+| 原理讲解、技术细节、早期实验室计划 | [PROJECT_REPORT.md](PROJECT_REPORT.md) |
 | 数据集格式、训练视图字段、图像方向、LeRobot 转换 | [P4_DATASET_FORMAT.md](P4_DATASET_FORMAT.md) |
 | 评估协议、命令选项、输出格式、对比报表 | [P5_EVAL_FORMAT.md](P5_EVAL_FORMAT.md) |
 | 模型接口、观测和动作合同、HTTP 协议 | [VLA_INTEGRATION.md](VLA_INTEGRATION.md) |
@@ -173,11 +199,11 @@
 | 硬件 | [HARDWARE_PROFILE.md](HARDWARE_PROFILE.md) |
 | 按日期的开发记录 | [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) |
 
-**给云端 claude.ai 对话上传的文件**：本文件、`PROJECT_REPORT.md`、`P4_DATASET_FORMAT.md`、`P5_EVAL_FORMAT.md`、`VLA_INTEGRATION.md`、`LAB_CAMERA_STUDY.md`，以及实验室电脑上的 `~/lab_logs/PROGRESS.md`。这份进度记录不在 GitHub 上，要从实验室电脑拷出来。
+**给云端 claude.ai 对话上传的文件**：本文件、`LAB_MASTER_PLAN.md`、`LAB_ZEROSHOT_REPORT.md`、`PROJECT_REPORT.md`、`P4_DATASET_FORMAT.md`、`P5_EVAL_FORMAT.md`、`VLA_INTEGRATION.md`、`LAB_CAMERA_STUDY.md`，以及实验室电脑上的 `~/lab_logs/PROGRESS.md`。这份进度记录不在 GitHub 上，要从实验室电脑拷出来。
 
 ## 10. 常用命令
 
-在实验室电脑上，先进入项目目录 `cd ~/projects/robolab-studio`：
+在实验室电脑上，先进入项目目录 `cd ~/projects/robolab-studio`，确认没有激活 `~/vla/.venv`：
 
 ```bash
 git pull
@@ -198,6 +224,8 @@ bash scripts/launch.sh --p5-eval --policy teacher --dataset outputs/p4d_lab --sc
 ```bash
 bash scripts/launch.sh --p5-compare --output-dir outputs/<对比目录> 标签1=outputs/<运行1> 标签2=outputs/<运行2>
 ```
+
+π₀.₅ 桥接服务和零样本评估的命令见 [LAB_ZEROSHOT_REPORT.md](LAB_ZEROSHOT_REPORT.md) 第 7 节（`pi05-bridge` 合并前只在实验室电脑上）。
 
 openpi 的命令在 `~/projects/openpi` 下运行，先确认没有激活 `vla` 环境：
 
