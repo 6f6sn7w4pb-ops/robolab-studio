@@ -1,5 +1,7 @@
 # RoboLab Studio 下一对话开发交接
 
+> **2026-11-19 起，新对话请先读 [LAB_STAGE_HANDOFF.md](LAB_STAGE_HANDOFF.md)。** 笔记本阶段已全部完成，后续在实验室电脑上进行。本文件保留按日期的开发记录，早期内容可能已过时（例如实验室显卡实际是 RTX 6000 Ada 48 GB，不是 A100）。
+
 整理日期：2026-11-02，Europe/London。本文件用于接续已有项目，不要求重新创建项目或重建环境。历史报告中的“当时尚未实现”须结合报告日期理解，以下当前状态优先。
 
 ## 1. 用户目标与开发边界
@@ -343,3 +345,18 @@ bash scripts/launch.sh --language-test  # 较长的双语桌面回归
   3. 跑通 openpi 官方 LIBERO 例子；写 π₀.₅ LoRA 配置并做短时微调测速。
   4. 用实验室布局生成新数据集（教师随机性、防滚、外观和相机随机化、视频压缩存储）。
 - 补充（同日）：新增数据集指纹 `docs/fingerprints/p4d_dataset_v1.json.gz` 和 `scripts/dataset_fingerprint.py`（入口 `--p4d-fingerprint`）。11 GB 数据集不带去实验室，在实验室重新生成后用 `--p4d-fingerprint check` 核对物理和图像是否与笔记本一致。笔记本上的数据集在核对通过前不要删。作废批次和试采目录的原始记录已删除（约 6.6 GB），摘要文件保留，见各目录的 `DELETED_FILES.txt`。
+
+
+## 22. 笔记本阶段收尾、实验室第一天（2026-11-18 至 11-19）
+
+- 实验室电脑：Windows + WSL Ubuntu-22.04，RTX 6000 Ada 48 GB（不是第 21 节写的 A100 80GB）。平台复刻验证全部通过：后端 98 项、界面测试；重新生成的数据集物理与笔记本一致、图像因显卡不同而有差别，归一化统计逐字节相同；规则教师评估 64/64。
+- openpi 已装好，`pi05_libero` 推理测试通过（10×7 输出，88 ms，8.4 GiB）。桥接服务在实验室本地分支 `pi05-bridge`，零样本评估跑了一半。
+- 新机器安装时发现的两处遗漏已修复：`docs/INSTALL.md` 补上编译工具（`build-essential linux-libc-dev python3.10-dev`），`requirements/sim.txt` 补上 `h5py==3.16.0`。
+- 笔记本上的 `outputs/` 已打包存档（只在笔记本上），原目录已删除。
+- 完整现状、决定、下一步和工作规则见 [LAB_STAGE_HANDOFF.md](LAB_STAGE_HANDOFF.md)。
+
+## 23. 零样本评估完成、范围调整（2026-11-20，实验室）
+
+- π₀.₅ 零样本评估（`pi05_libero` 不微调，旧布局扩展测试集 240 条，防滚，`--execute-steps 5`）续跑完成：成功 36/240 = 15.0% [11.0, 20.1]，部位命中 31.7%，抬起 46.7%，碰撞 32.1%，接触时部位正确率 51.8%（粗端 76.1%、细端 27.1%）；43 条伸向障碍物；0 条策略错误（最大夹爪超出 0.0244）；平均推理 111 ms；总用时 27.5 分钟。接口检查全部正确。详见 [LAB_ZEROSHOT_REPORT.md](LAB_ZEROSHOT_REPORT.md)。
+- 用户新决定：只有一台电脑，生成、训练、评估排队；数据 5,000 条（先 2,000）；任务扩展到任意命名部位；物体用 A 参数化日常物体 + B PartNet + C 奇怪形状；四层留出；实验只用英文；新数据和测试全部用实验室布局；相机位置在仿真里定、真机 3D 打印照做；1 TB 移动硬盘作为工作盘，到货前不生成新数据、不正式训练。
+- 新增 [LAB_MASTER_PLAN.md](LAB_MASTER_PLAN.md)（项目全景），更新 [LAB_STAGE_HANDOFF.md](LAB_STAGE_HANDOFF.md)。`pi05-bridge` 仍未推送，下一步是复核并合并它。
