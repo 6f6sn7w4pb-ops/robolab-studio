@@ -1,6 +1,6 @@
 # 实验室阶段交接（新对话从这里开始）
 
-更新：2026-11-20。笔记本阶段已全部完成，之后的工作都在实验室电脑上进行。本文件汇总了此前所有对话里的背景、已经做出的决定、当前进度和下一步。新的对话（实验室电脑上的 Claude Code、云端的 Claude Code，或 claude.ai 网页对话）请先完整读完本文件，再动手。
+更新：2026-11-23。笔记本阶段已全部完成，之后的工作都在实验室电脑上进行。本文件汇总了此前所有对话里的背景、已经做出的决定、当前进度和下一步。新的对话（实验室电脑上的 Claude Code、云端的 Claude Code，或 claude.ai 网页对话）请先完整读完本文件，再动手。
 
 - **整体分析**请再读 [LAB_MASTER_PLAN.md](LAB_MASTER_PLAN.md)：从开始到现在再到以后的全景，包括所有建模尺寸、实验室布局、新数据生成器的设计要求、与之前计划的不同。
 - 零样本评估的完整结果见 [LAB_ZEROSHOT_REPORT.md](LAB_ZEROSHOT_REPORT.md)。
@@ -82,7 +82,7 @@
 
 | 内容 | 位置 | 版本 |
 | --- | --- | --- |
-| RoboLab Studio | `~/projects/robolab-studio` | 本仓库；实验室本地还有分支 `pi05-bridge`（未推送） |
+| RoboLab Studio | `~/projects/robolab-studio` | 本仓库（桥接服务 `pi05-bridge` 已于 2026-11-23 通过 PR #11 合并） |
 | 仿真环境 | `~/projects/robolab-studio/.venv-sim` | Python 3.10.12；MuJoCo 2.3.7；robosuite 1.4.1；NumPy 1.26.4；LIBERO 0.1.0（提交 `8f1084e3132a39270c3a13ebe37270a43ece2a01`，在 `third_party/LIBERO`）；torch 2.2.0+cpu；h5py 3.16.0 |
 | 界面环境 | `~/projects/robolab-studio/.venv` | PySide6 6.8.3 |
 | uv | `~/.local/bin/uv` | 0.13.9 |
@@ -117,23 +117,35 @@
    - 规则教师评估 `outputs/lab_eval_teacher`：64/64 成功，阻挡对照 4/4 检出碰撞，与 `p4d_lab` 逐帧比对 68/68 一致，各项检查全部为 true。
 3. **openpi**：安装成功，没有用 Docker。下载 `pi05_libero`（匿名下载，无需谷歌云账号，约 110 MB/s）。
 4. **推理测试**（随机假观测）：输出 (10, 7)，全部有限；加载 9.0 s，首次推理 19.8 s（编译），之后平均 **88 ms**；占显存约 **8.4 GiB**。夹爪一维略超 ±1（−1.0007 ~ 1.0109）。
-5. **桥接服务**：`scripts/serve_openpi_bridge.py`、`robolab/policy.py` 里的 `OpenpiAdapter`（注册名 `pi05`）、`tests/test_openpi_bridge.py`（14 项，不依赖显卡）；后端测试 112 项通过；2 条小规模试跑通过。提交在**本地分支 `pi05-bridge`（代码 `37b4e4c`，另有一个标记“未完成”的空提交 `bc961fe`），未推送**。
+5. **桥接服务**：`scripts/serve_openpi_bridge.py`、`robolab/policy.py` 里的 `OpenpiAdapter`（注册名 `pi05`）、`tests/test_openpi_bridge.py`（14 项，不依赖显卡）；后端测试 112 项通过；2 条小规模试跑通过。代码提交 `37b4e4c`，2026-11-23 以合并提交并入 `main`（PR #11，`917e890`），零样本评估记录的就是这个提交号；当初标记“未完成”的空提交已去掉。
 
 ### 5.3 2026-11-20
 
 1. **零样本评估完成**（`outputs/lab_eval_pi05_libero_zeroshot`，旧布局 240 条）：成功 **36/240 = 15.0%** [11.0, 20.1]；部位命中 31.7%；抬起 46.7%；碰撞 32.1%；接触时部位正确率 51.8%（粗端 76.1%，细端 27.1%，模型基本不区分部位）；43 条把机械臂伸向障碍物；**0 条策略错误**（最大夹爪超出 0.0244，全部在裁剪范围内）；服务端平均推理 111 ms；总用时 27.5 分钟。接口检查（朝物体移动、夹爪开合、控制和图像方向）全部正确。复跑不一致是因为 openpi 的采样噪声取决于请求到达服务的顺序。详见 [LAB_ZEROSHOT_REPORT.md](LAB_ZEROSHOT_REPORT.md)。
 2. 和用户定下了第 3 节标注 2026-11-20 的决定；写了 [LAB_MASTER_PLAN.md](LAB_MASTER_PLAN.md)。
 
-日志：实验室电脑的 `~/lab_logs/2026-11-18/`、`~/lab_logs/2026-11-20/` 和 `outputs/p4d_lab/logs/`；进度记录：`~/lab_logs/PROGRESS.md`（含确切命令）。
+### 5.4 2026-11-23
+
+1. **第 2 步完成**：桥接服务经另一个对话审过（在 Python 3.13、numpy 2.5 的环境里 14 项桥接测试也通过），PR #11 以合并提交并入 `main`，`37b4e4c` 保留在 `main` 历史里。
+2. **第 3 步完成：现有训练集转成 LeRobot**（`scripts/convert_p4_to_lerobot.py`，用 openpi 环境的 Python）。
+   - 数据集 `robolab/p4d_v1_train`，位于 `$HF_LEROBOT_HOME/robolab/p4d_v1_train`（`HF_LEROBOT_HOME=outputs/lerobot`）；LeRobot v2.1（openpi 固定的版本）。
+   - 只有基线字段：`image`、`wrist_image`（224×224×3，`dtype: image`，即无损 PNG，没有视频）、`state`（8）、`actions`（7）、`task`（英文）；**fps 20**；图像方向 `libero_rotated_180`（规范图像水平翻转）。
+   - 读回校验（另一条代码路径直接读 HDF5）：**120 条 / 26,640 帧，53,280 张图像逐像素完全一致**，状态、动作、指令、时间戳全部一致。
+   - 大小 **2.72 GB**（每条 22.7 MB）。
+   - **可以往已有数据集追加**：重新打开后追加一条，结果和一次写完的数据集逐字节相同。
+   - 数据集用已提交的代码（`0b6a173`）转换，记录 `dirty: false`；和之前用未提交代码转出的版本逐字节相同。脚本留了 `EXTRA_FIELDS` 接口，以后加预期接触等标签。
+3. **第 4 步完成（测量）**：π₀.₅ LoRA 配置写在我们自己的仓库（`scripts/openpi_robolab.py`），运行时注册进 openpi 的 `_CONFIGS_DICT`，再调用 openpi 的 `compute_norm_stats.py`、`train.py` 的 `main`，不改 openpi 源码。已下载 `pi05_base`（11.6 GiB）。各 300 步：批量 32 每步 5.43 s、显存峰值 23.3 GiB；批量 64 每步 12.0 s、峰值 31.5 GiB（需 `XLA_PYTHON_CLIENT_MEM_FRACTION=0.9`，默认 75% 上限下第一步显存不足）；显卡利用率约 100%（不是卡在读数据）；检查点每个 9.6 GB；损失约 0.08 → 0.019。建议批量 32，待用户确认。详见 [LAB_LORA_PROBE.md](LAB_LORA_PROBE.md)。
+
+日志：实验室电脑的 `~/lab_logs/2026-11-18/`、`~/lab_logs/2026-11-20/`、`~/lab_logs/2026-11-23/` 和 `outputs/p4d_lab/logs/`；进度记录：`~/lab_logs/PROGRESS.md`（含确切命令）。
 
 ## 6. 下一步（按顺序）
 
 | # | 任务 | 完成标志 |
 | --- | --- | --- |
 | 1 | ~~续跑 π₀.₅ 零样本评估~~ | **已完成（2026-11-20）**，见 5.3 节 |
-| 2 | 复核桥接服务并合并 `pi05-bridge` | 测试通过；从 GitHub 拉最新 `main` 合并后，把分支推上去开 PR，CI 通过后合并（**推送前问用户**）。同时讨论：是否让采样噪声由“条目 + tick”确定（`Policy.infer` 支持传入 `noise`），以及在官方 LIBERO-Object 任务上复现一次成绩以证明接口正确 |
-| 3 | 现有数据转 LeRobot 格式 | 用 `robolab.p4_dataset_export.iter_policy_frames(path, language='en', image_convention='libero_rotated_180')` 逐帧写入 `LeRobotDataset`；读回检查图像方向、帧数（训练集 120 条 / 26,640 帧）、字段；**记录转换后的大小**；接触相关标签（预期接触点、部位中心等）作为额外字段存进同一份数据，按“部位表”设计、不写死粗端/细端；**核实 openpi 用的 LeRobot 版本（提交 `0cf86487`）能否往已有数据集追加** |
-| 4 | 写 π₀.₅ LoRA 配置并做短时训练 | 先下载 `pi05_base`；用 openpi 的脚本算归一化统计；跑几百步，记录**每步耗时、显存真实峰值**（设 `XLA_PYTHON_CLIENT_PREALLOCATE=false`，或读 JAX `memory_stats` 的 `peak_bytes_in_use`；在 `XLA_PYTHON_CLIENT_MEM_FRACTION=0.9` 下 nvidia-smi 只显示预占的 90%，不是真实需求）、**内存峰值、每个检查点的大小**，损失在下降。**这里定下的批量大小，之后所有要比较的模型都用同一个** |
+| 2 | ~~复核桥接服务并合并 `pi05-bridge`~~ | **已完成（2026-11-23，PR #11）**。“固定噪声”、观测改用无损 PNG、把桥接测试加进 CI 由另一个对话合成一个单独的 PR（见第 7 节）；官方 LIBERO 复现留到显卡空闲时 |
+| 3 | ~~现有数据转 LeRobot 格式~~ | **已完成（2026-11-23）**，见 5.4 节。接触相关标签以后通过转换脚本的 `EXTRA_FIELDS` 加进同一份数据，按“部位表”设计、不写死粗端/细端 |
+| 4 | 写 π₀.₅ LoRA 配置并做短时训练（**测量已完成，待用户定批量**，见 [LAB_LORA_PROBE.md](LAB_LORA_PROBE.md)；原要求如下） | 先下载 `pi05_base`；用 openpi 的脚本算归一化统计；跑几百步，记录**每步耗时、显存真实峰值**（设 `XLA_PYTHON_CLIENT_PREALLOCATE=false`，或读 JAX `memory_stats` 的 `peak_bytes_in_use`；在 `XLA_PYTHON_CLIENT_MEM_FRACTION=0.9` 下 nvidia-smi 只显示预占的 90%，不是真实需求）、**内存峰值、每个检查点的大小**，损失在下降。**这里定下的批量大小，之后所有要比较的模型都用同一个** |
 | 5 | 相机 | 在仿真里定腕部相机偏移、高度、倾角和外部相机位置，输出 3D 打印支架的尺寸说明；用户读两台 D455 内参（Windows 上 `rs-enumerate-devices -c`），填进 `robolab/lab_scene.py`；装好后真机照片与仿真画面叠图核对 |
 | 6 | 工作盘（移动硬盘到货后） | 按第 7 节建 vhdx 工作盘并挂进 WSL；`outputs/` 和 openpi 检查点目录换成链接 |
 | 7 | 新数据生成器（实验室布局） | 先写设计说明给用户和导师确认；再分阶段实现：A0（通用部位格式 + 通用规则教师，用两段式短棒验证）→ A（参数化日常物体）→ 按四层留出生成新测试场景（约 360 条），跑规则教师和零样本（新的 M0）→ 生成 2,000 条试训 → B（PartNet）、C（奇怪形状）→ 扩到 5,000 条。详见 LAB_MASTER_PLAN 第 12–13 节 |
@@ -155,6 +167,11 @@
 - **控制真机的电脑**：Franka 一般接一台装了实时内核的 Ubuntu 电脑，很可能不是当前这台，需要确认。
 - **现有代码写死了“两个部位”**：`p4_parts.PARTS`、`p4_dataset_export.PART_IDS`（2 表示两段都有）、`p5_eval.other_part()`、按部位的指令模板、界面里的 `PARTS`。新生成器要改成按“部位表”的通用格式。
 - **`lab_xml_hook` 只把旧场景的物体抬到桌面高度**，水平位置仍是旧范围；新生成器要按物体桌（底座前 0.30–0.70 m、左右 ±0.40 m）重新采样。
+- **`HF_LEROBOT_HOME` 必须前后一致**：设成 `~/projects/robolab-studio/outputs/lerobot`。转换脚本、openpi 的 `compute_norm_stats.py` 和 `train.py` 都通过 `$HF_LEROBOT_HOME/<repo_id>` 找数据；同时设 `HF_HUB_OFFLINE=1`，数据缺文件时报错而不是去下载。
+- **openpi 配置写在我们的仓库里**：`scripts/openpi_robolab.py` 在运行时把配置注册进 openpi 的 `_CONFIGS_DICT`，**不改 openpi 的 `src/openpi/training/config.py`**。桥接服务的 `load_openpi_policy` 也用 `get_config`，以后加载我们训练出的模型前也要先注册。
+- **显存上限**：只设 `XLA_PYTHON_CLIENT_PREALLOCATE=false` 时，JAX 的分配上限仍是显卡的 75%（约 36 GiB）；要用到约 43 GiB，需同时设 `XLA_PYTHON_CLIENT_MEM_FRACTION=0.9`。
+- **另一个对话正在做的 PR**（合并前**不要改** `robolab/policy.py`、`robolab/p5_eval.py`、`scripts/serve_openpi_bridge.py`、`tests/test_openpi_bridge.py`、`.github/workflows/checks.yml`）：评估发给模型的图像现在是 JPEG（质量 95），训练数据是无损的，要改成无损 PNG；把 `tests/test_openpi_bridge.py` 加进 GitHub 的自动检查；“固定噪声”：用观测内容（图像、指令、`episode_tick`）的哈希作随机种子，生成 (10, 32) 的噪声传给 `policy.infer(obs, noise=...)`，不用 `observation_id`（它只是请求计数）。
+- **待办**：在官方 LIBERO 任务上复现 `pi05_libero` 的成绩，证明“真实推理”接口正确；等显卡空闲时做。
 
 ## 8. 研究方案（训练与对比实验）
 
@@ -225,7 +242,20 @@ bash scripts/launch.sh --p5-eval --policy teacher --dataset outputs/p4d_lab --sc
 bash scripts/launch.sh --p5-compare --output-dir outputs/<对比目录> 标签1=outputs/<运行1> 标签2=outputs/<运行2>
 ```
 
-π₀.₅ 桥接服务和零样本评估的命令见 [LAB_ZEROSHOT_REPORT.md](LAB_ZEROSHOT_REPORT.md) 第 7 节（`pi05-bridge` 合并前只在实验室电脑上）。
+π₀.₅ 桥接服务和零样本评估的命令见 [LAB_ZEROSHOT_REPORT.md](LAB_ZEROSHOT_REPORT.md) 第 7 节。
+
+LeRobot 转换和 LoRA 训练（openpi 环境的 Python；先设好三个变量）：
+
+```bash
+deactivate 2>/dev/null; unset VIRTUAL_ENV
+export HF_LEROBOT_HOME=~/projects/robolab-studio/outputs/lerobot HF_HUB_OFFLINE=1
+PY=~/projects/openpi/.venv/bin/python
+$PY scripts/convert_p4_to_lerobot.py convert --hdf5 outputs/p4d_lab/export/p4_osc_train.hdf5 --repo-id robolab/p4d_v1_train
+$PY scripts/convert_p4_to_lerobot.py verify  --hdf5 outputs/p4d_lab/export/p4_osc_train.hdf5 --repo-id robolab/p4d_v1_train
+$PY scripts/openpi_robolab.py norm-stats
+XLA_PYTHON_CLIENT_PREALLOCATE=false XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+  $PY scripts/openpi_robolab.py train --batch-size 32 --steps 300 --exp-name <实验名> --measure outputs/openpi_probe/<实验名>.json
+```
 
 openpi 的命令在 `~/projects/openpi` 下运行，先确认没有激活 `vla` 环境：
 

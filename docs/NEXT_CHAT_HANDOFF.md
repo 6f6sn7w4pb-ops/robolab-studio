@@ -360,3 +360,9 @@ bash scripts/launch.sh --language-test  # 较长的双语桌面回归
 - π₀.₅ 零样本评估（`pi05_libero` 不微调，旧布局扩展测试集 240 条，防滚，`--execute-steps 5`）续跑完成：成功 36/240 = 15.0% [11.0, 20.1]，部位命中 31.7%，抬起 46.7%，碰撞 32.1%，接触时部位正确率 51.8%（粗端 76.1%、细端 27.1%）；43 条伸向障碍物；0 条策略错误（最大夹爪超出 0.0244）；平均推理 111 ms；总用时 27.5 分钟。接口检查全部正确。详见 [LAB_ZEROSHOT_REPORT.md](LAB_ZEROSHOT_REPORT.md)。
 - 用户新决定：只有一台电脑，生成、训练、评估排队；数据 5,000 条（先 2,000）；任务扩展到任意命名部位；物体用 A 参数化日常物体 + B PartNet + C 奇怪形状；四层留出；实验只用英文；新数据和测试全部用实验室布局；相机位置在仿真里定、真机 3D 打印照做；1 TB 移动硬盘作为工作盘，到货前不生成新数据、不正式训练。
 - 新增 [LAB_MASTER_PLAN.md](LAB_MASTER_PLAN.md)（项目全景），更新 [LAB_STAGE_HANDOFF.md](LAB_STAGE_HANDOFF.md)。`pi05-bridge` 仍未推送，下一步是复核并合并它。
+
+## 24. 合并桥接服务、转 LeRobot、LoRA 短时训练（2026-11-23，实验室）
+
+- 第 2 步：桥接服务经另一个对话审过，PR #11 以合并提交并入 `main`（`37b4e4c` 保留在历史里）。待另一个对话合成的 PR：观测改用无损 PNG、桥接测试加进 CI、按观测内容哈希固定采样噪声；合并前不要改那 5 个文件（见 [LAB_STAGE_HANDOFF.md](LAB_STAGE_HANDOFF.md) 第 7 节）。
+- 第 3 步：`scripts/convert_p4_to_lerobot.py` 把训练集转成 LeRobot（v2.1，无损 PNG，fps 20，`libero_rotated_180`），120 条 / 26,640 帧，53,280 张图像逐像素一致，2.72 GB；追加与一次写完逐字节相同。
+- 第 4 步：`scripts/openpi_robolab.py` 在运行时注册 π₀.₅ LoRA 配置并调用 openpi 的统计和训练脚本。各 300 步：批量 32 每步 5.43 s、显存峰值 23.3 GiB；批量 64 每步 12.0 s、峰值 31.5 GiB（需显存比例 0.9）；显卡利用率约 100%；检查点 9.6 GB；损失 0.08 → 0.019。详见 [LAB_LORA_PROBE.md](LAB_LORA_PROBE.md)。

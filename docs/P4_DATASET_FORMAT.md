@@ -114,7 +114,17 @@
 
 ## 6. LeRobot / openpi
 
-本机后端环境没有 `lerobot` 和 `pyarrow`，按约定也不往原环境安装新包，所以这一步在本机没有执行，`export_manifest.json` 中 `lerobot_written=false`。在实验室装有 openpi 的环境里，按 openpi LIBERO 转换脚本的方式，把 `iter_policy_frames` 给出的每一帧传给 `LeRobotDataset.add_frame`，每条示范结束时调用 `save_episode` 即可。写出后，要用 openpi 自带的统计脚本重新计算归一化统计，再做一次实际加载检查。
+后端环境没有 `lerobot` 和 `pyarrow`，按约定也不往原环境安装新包，所以导出步骤本身不写 LeRobot（`export_manifest.json` 中 `lerobot_written=false`）。转换由单独的脚本 `scripts/convert_p4_to_lerobot.py` 完成，**用 openpi 环境的 Python 运行**（openpi 固定了 LeRobot 版本，数据格式 v2.1）：
+
+- 字段：`image`、`wrist_image`（uint8 224×224×3，`dtype: image`，即无损 PNG 嵌在 parquet 里，没有视频）、`state`（8 维 float32）、`actions`（7 维 float32）、`task`（英文指令），名字与 openpi 的 LIBERO 示例一致；fps 20（录制时的控制频率）。
+- 图像方向：`libero_rotated_180`（规范图像水平翻转），与 `pi05_libero` 训练时一致。
+- 位置：`$HF_LEROBOT_HOME/<repo_id>`。`HF_LEROBOT_HOME` 必须显式设置（实验室设为 `outputs/lerobot`），openpi 的统计和训练脚本也要用同一个值；脚本强制 `HF_HUB_OFFLINE=1`，从不下载、不推送。
+- `convert` 从不覆盖已有数据集，并写一份 `robolab_conversion.json`（源 HDF5 的 SHA256、每条对应的 case_id、字段、代码版本）。
+- `verify` 用另一条代码路径直接读 HDF5，要求每张图像与 HDF5 图像水平翻转后**逐像素相同**，状态、动作、指令、序号、时间戳完全一致，并抽查训练时的读取路径。
+- `append-test` 在临时目录验证“重新打开后追加”与“一次写完”逐字节相同；`compare` 逐字节比较两次转换。
+- 额外的逐帧字段（预期接触点、部位中心等）通过脚本里的 `EXTRA_FIELDS` 登记后用 `convert --extra` 写入，训练配置决定用哪些。
+
+实验室结果（2026-11-23，训练集）：120 条 / 26,640 帧，53,280 张图像逐像素一致，2.72 GB；追加与一次写完逐字节相同。写出后用 openpi 自带的统计脚本重新计算归一化统计（`scripts/openpi_robolab.py norm-stats`）。
 
 ## 7. 跨机器核对（指纹）
 
