@@ -61,7 +61,7 @@
 | 只用英文 | 实验数据和评估只用英文指令（界面仍中英文切换） | 用户 2026-11-20 决定 |
 | 数据集 | **5,000 条**，先 2,000 条试训；按**实验室布局**生成；小数据集是大数据集的前缀，扩充不重新生成；5,000 条时原始记录、HDF5、LeRobot 三份都保留 | 用户 2026-11-20 决定（原计划 1–2 万条）。现有 200 条是旧布局，用于调试训练流程 |
 | 全部改用实验室布局 | 新数据和新测试场景都用实验室布局（两张桌子、真实相机位置）；旧布局的 240 条测试和零样本结果作为前期工作保留，规则教师和零样本要在新布局上重跑 | 用户 2026-11-20 决定 |
-| 相机位置 | **在仿真里定好，真机支架按仿真位置 3D 打印**；不再测量腕部支架；仍需读两台 D455 的内参（用户下周读） | 导师意见（2026-11-20） |
+| 相机位置 | **在仿真里定好，真机支架按仿真位置 3D 打印**；不再测量腕部支架；两台 D455 的内参已于 2026-11-25 读出（[D455_CAMERA_PARAMS.md](D455_CAMERA_PARAMS.md)） | 导师意见（2026-11-20） |
 | 外部相机 | 物体桌**正对面**、离地约 **1.30 m**（比桌面高约 56 cm、远边外约 30 cm、俯视约 43°）；备选左侧 1.30 m | 仿真对比结果，见 [LAB_CAMERA_STUDY.md](LAB_CAMERA_STUDY.md) |
 | 腕部相机要倾斜 | 倾角 ≈ arctan(偏移 ÷ 镜头到指尖中心距离) − 20°；偏移 6/8/10 cm 时约倾 10°/20°/30°；具体值在仿真里选定 | 同上 |
 | 训练、评估都用实验室机器生成的数据 | 用 `outputs/p4d_lab` 及以后在实验室生成的数据 | 不同显卡渲染的图像有细微差别；训练和评估同一台机器才能保证输入一致 |
@@ -134,7 +134,7 @@
 | 2 | 复核桥接服务并合并 `pi05-bridge` | 测试通过；从 GitHub 拉最新 `main` 合并后，把分支推上去开 PR，CI 通过后合并（**推送前问用户**）。同时讨论：是否让采样噪声由“条目 + tick”确定（`Policy.infer` 支持传入 `noise`），以及在官方 LIBERO-Object 任务上复现一次成绩以证明接口正确 |
 | 3 | 现有数据转 LeRobot 格式 | 用 `robolab.p4_dataset_export.iter_policy_frames(path, language='en', image_convention='libero_rotated_180')` 逐帧写入 `LeRobotDataset`；读回检查图像方向、帧数（训练集 120 条 / 26,640 帧）、字段；**记录转换后的大小**；接触相关标签（预期接触点、部位中心等）作为额外字段存进同一份数据，按“部位表”设计、不写死粗端/细端；**核实 openpi 用的 LeRobot 版本（提交 `0cf86487`）能否往已有数据集追加** |
 | 4 | 写 π₀.₅ LoRA 配置并做短时训练 | 先下载 `pi05_base`；用 openpi 的脚本算归一化统计；跑几百步，记录**每步耗时、显存真实峰值**（设 `XLA_PYTHON_CLIENT_PREALLOCATE=false`，或读 JAX `memory_stats` 的 `peak_bytes_in_use`；在 `XLA_PYTHON_CLIENT_MEM_FRACTION=0.9` 下 nvidia-smi 只显示预占的 90%，不是真实需求）、**内存峰值、每个检查点的大小**，损失在下降。**这里定下的批量大小，之后所有要比较的模型都用同一个** |
-| 5 | 相机 | 在仿真里定腕部相机偏移、高度、倾角和外部相机位置，输出 3D 打印支架的尺寸说明；用户读两台 D455 内参（Windows 上 `rs-enumerate-devices -c`），填进 `robolab/lab_scene.py`；装好后真机照片与仿真画面叠图核对 |
+| 5 | 相机 | 在仿真里定腕部相机偏移、高度、倾角和外部相机位置，输出 3D 打印支架的尺寸说明；两台 D455 内参已读（2026-11-25，[D455_CAMERA_PARAMS.md](D455_CAMERA_PARAMS.md)：第一台 fovy 63.789°、第二台 65.031°），确定哪台在腕部后按相机填进 `robolab/lab_scene.py`；装好后真机照片与仿真画面叠图核对 |
 | 6 | 工作盘（移动硬盘到货后） | 按第 7 节建 vhdx 工作盘并挂进 WSL；`outputs/` 和 openpi 检查点目录换成链接 |
 | 7 | 新数据生成器（实验室布局） | 先写设计说明给用户和导师确认；再分阶段实现：A0（通用部位格式 + 通用规则教师，用两段式短棒验证）→ A（参数化日常物体）→ 按四层留出生成新测试场景（约 360 条），跑规则教师和零样本（新的 M0）→ 生成 2,000 条试训 → B（PartNet）、C（奇怪形状）→ 扩到 5,000 条。详见 LAB_MASTER_PLAN 第 12–13 节 |
 | 8 | 训练基线和本文方法，做对比评估 | 见第 8 节 |
@@ -150,8 +150,8 @@
 - **检查点占空间**：openpi 默认每 1,000 步存一次、永久保留每 5,000 步的检查点；按权重约 12 GB 估算，一轮 3 万步训练可能留下七八十 GB。正式训练前用 `keep_period`、`save_interval` 控制。
 - **工作盘（1 TB 移动固态硬盘，预计 2026-11-20 的下一周到货）**：格式化为 NTFS，固定盘符；在上面建一个 vhdx 虚拟磁盘，挂进 WSL（`wsl --mount --vhd <路径> --name robodata`，挂载点 `/mnt/wsl/robodata`），格式化成 ext4；**用 mkfs 格式化之前，必须先把 `lsblk` 的输出给用户确认**；再把 `outputs/` 和 openpi 的检查点目录换成指向它的链接；`outputs` 换成链接后，在 `.git/info/exclude` 里加一行 `/outputs`（`.gitignore` 里的 `outputs/` 不匹配同名链接）。5,000 条时三份数据都能保留；只有扩到 1 万条才需要“每批转换后清理中间文件”，自动删除默认关闭，要用户同意才打开。
 - **空间回收**：在 WSL 里删文件不会让 C 盘变大。如需回收，WSL 3.x 可用 `wsl --manage Ubuntu-22.04 --set-sparse true`（先 `wsl --shutdown`），要在 Windows 的 PowerShell 里做，会关掉 WSL 里的 Claude Code。
-- **相机视场角**：D455 彩色相机规格有两种说法（90°×65° 或 86°×57°），以实际读出的内参为准。openpi 把 1280×800 缩放到 224×140 再补边成 224×224，新数据的仿真图像应按同样方式处理。
-- **WSL 与 USB 相机**：WSL 默认看不到 USB 设备，读内参在 Windows 上做。
+- **相机视场角**：D455 彩色相机规格有两种说法（90°×65° 或 86°×57°）。实测 1280×800 下第一台 89.67°×63.79°、第二台 91.06°×65.01°，两台焦距差 2.4%，仿真里每台用自己的 fovy（[D455_CAMERA_PARAMS.md](D455_CAMERA_PARAMS.md)）。openpi 把 1280×800 缩放到 224×140 再补边成 224×224，新数据的仿真图像应按同样方式处理。
+- **WSL 与 USB 相机**：WSL 默认看不到 USB 设备，读内参在 Windows 上做（方法见 [D455_CAMERA_PARAMS.md](D455_CAMERA_PARAMS.md) 第 6 节）。
 - **控制真机的电脑**：Franka 一般接一台装了实时内核的 Ubuntu 电脑，很可能不是当前这台，需要确认。
 - **现有代码写死了“两个部位”**：`p4_parts.PARTS`、`p4_dataset_export.PART_IDS`（2 表示两段都有）、`p5_eval.other_part()`、按部位的指令模板、界面里的 `PARTS`。新生成器要改成按“部位表”的通用格式。
 - **`lab_xml_hook` 只把旧场景的物体抬到桌面高度**，水平位置仍是旧范围；新生成器要按物体桌（底座前 0.30–0.70 m、左右 ±0.40 m）重新采样。
@@ -195,11 +195,12 @@
 | 评估协议、命令选项、输出格式、对比报表 | [P5_EVAL_FORMAT.md](P5_EVAL_FORMAT.md) |
 | 模型接口、观测和动作合同、HTTP 协议 | [VLA_INTEGRATION.md](VLA_INTEGRATION.md) |
 | 实验室场景尺寸和相机位置 | [LAB_CAMERA_STUDY.md](LAB_CAMERA_STUDY.md) |
+| 两台 D455 的实测内参（第一台、第二台） | [D455_CAMERA_PARAMS.md](D455_CAMERA_PARAMS.md) |
 | 安装 | [INSTALL.md](INSTALL.md) |
 | 硬件 | [HARDWARE_PROFILE.md](HARDWARE_PROFILE.md) |
 | 按日期的开发记录 | [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) |
 
-**给云端 claude.ai 对话上传的文件**：本文件、`LAB_MASTER_PLAN.md`、`LAB_ZEROSHOT_REPORT.md`、`PROJECT_REPORT.md`、`P4_DATASET_FORMAT.md`、`P5_EVAL_FORMAT.md`、`VLA_INTEGRATION.md`、`LAB_CAMERA_STUDY.md`，以及实验室电脑上的 `~/lab_logs/PROGRESS.md`。这份进度记录不在 GitHub 上，要从实验室电脑拷出来。
+**给云端 claude.ai 对话上传的文件**：本文件、`LAB_MASTER_PLAN.md`、`LAB_ZEROSHOT_REPORT.md`、`PROJECT_REPORT.md`、`P4_DATASET_FORMAT.md`、`P5_EVAL_FORMAT.md`、`VLA_INTEGRATION.md`、`LAB_CAMERA_STUDY.md`、`D455_CAMERA_PARAMS.md`，以及实验室电脑上的 `~/lab_logs/PROGRESS.md`。这份进度记录不在 GitHub 上，要从实验室电脑拷出来。
 
 ## 10. 常用命令
 
