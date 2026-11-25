@@ -15,7 +15,7 @@ import json
 import math
 from pathlib import Path
 
-from .p5_eval import SUMMARY_SCHEMA, group_stats
+from .p5_eval import SUMMARY_SCHEMA, group_stats, policy_image_encoding
 
 COMPARISON_SCHEMA = 'robolab.p5_comparison.v1'
 METRICS = ('success', 'part_hit', 'lifted', 'collision')
@@ -109,6 +109,12 @@ def compare(runs):
         values = {json.dumps(run['summary'].get(key)) for run in runs}
         if len(values) > 1:
             warnings.append(f'{key} differs between runs: '+', '.join(sorted(values)))
+    # Models that saw JPEG and models that saw lossless PNG did not get the same input.
+    encodings = {run['label']: policy_image_encoding(run['summary'].get('policy_spec') or {}) for run in runs}
+    encodings = {label: value for label, value in encodings.items() if value is not None}
+    if len(set(encodings.values())) > 1:
+        warnings.append('image_encoding differs between model runs: '
+                        + ', '.join(f'{label}={value}' for label, value in encodings.items()))
     for run, ids in zip(runs, evaluated):
         summary = run['summary']
         if summary['status'] != 'finalized':

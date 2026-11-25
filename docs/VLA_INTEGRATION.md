@@ -61,7 +61,8 @@ register_vla_adapter('pi05', MyOpenpiAdapter)
 观察版本 `robolab.observation.v1` 包含：
 
 - `instruction`、`sim_time`、`observation_id`。
-- 两路 224×224 RGB/JPEG：`agentview`、`robot0_eye_in_hand`。相机来自真实 MuJoCo 场景，使用方形渲染视口，统一为图像左上角原点的标准 RGB。模型训练专用的翻转/裁剪由模型适配器负责，仿真器不包含 OpenVLA 专用图像变换。
+- 两路 224×224 RGB：`agentview`、`robot0_eye_in_hand`。相机来自真实 MuJoCo 场景，使用方形渲染视口，统一为图像左上角原点的标准 RGB。模型训练专用的翻转/裁剪由模型适配器负责，仿真器不包含 OpenVLA 专用图像变换。
+- 图像编码 `encoding` 是 `png_base64`（无损）或 `jpeg_base64`，`validate_observation` 按文件头核对。P5 批量评估从 2026-11-25 起默认发 PNG，模型收到的像素和训练数据逐字节相同（`--image-encoding`，见 [P5_EVAL_FORMAT.md](P5_EVAL_FORMAT.md) 第 3 节）；桌面界面的单次观察测试仍发 JPEG。
 - `proprio`：末端世界位置 3、旋转轴角 3、两指关节位置 2，共 8 维；另附 7 个实际关节位置。
 - `calibration`：两相机的仿真内参 K、`T_world_camera`、图像旋转和轴方向约定；腕部外参每次观察更新。这是后续几何模块的输入结构，尚未完成 G³VLA 几何训练或精度评测。
 
@@ -94,6 +95,26 @@ PYTHONPATH="$PWD:/home/openvla/projects/openvla-oft:/home/openvla/projects/LIBER
 服务只接受本地已有 checkpoint，不下载；OFT 原有 helper 会同步配置文件，因此桥接器把小型元数据复制到项目 `model-cache/`，大权重只做只读链接，避免改写原 checkpoint 或 OpenVLA-OFT 源码。服务器必须成功初始化真实模型后才提供 `model_loaded=true`。
 
 桥接协议 v1：`GET /health`，`POST /predict`。真实模型响应必须明确 `real_inference=true`、`is_mock=false`，且动作空间正确。带 `test_backend=true` 的服务不能被 OFT Adapter 接纳为真实模型。
+
+## openpi（π₀.₅）桥接服务
+
+`scripts/serve_openpi_bridge.py` 在 openpi 自己的环境里加载模型，对外说同一套桥接协议 v1；评估端的适配器叫 `pi05`（`robolab/policy.py` 的 `OpenpiAdapter`）。启动和评估命令见 [LAB_ZEROSHOT_REPORT.md](LAB_ZEROSHOT_REPORT.md) 第 7 节。
+
+| 环节 | 做法 |
+| --- | --- |
+| 图像 | 解码 PNG 或 JPEG，再水平翻转 `image[:, ::-1]`，即 openpi LIBERO 示例的“原始帧旋转 180°” |
+| 状态和指令 | 8 维状态原样传入；`pi05_libero` 的配置（`discrete_state_input=False`）实际不读它 |
+| 输出 | 夹爪等维度超出 [−1, 1] 不到 0.05 的裁剪到 ±1 并报告次数；超出更多的返回错误、不裁剪 |
+| 并发 | 推理加锁串行 |
+| 只用本地权重 | `--checkpoint` 必须是本地目录，服务从不下载 |
+| 我们训练的模型 | `--config pi05_robolab_lora`，`--checkpoint` 指向训练输出的步数目录，例如 `outputs/openpi_checkpoints/pi05_robolab_lora/<实验名>/<步数>`。这个配置不在 openpi 里，服务会先从 `scripts/openpi_robolab.py` 把它注册进 openpi 的配置表，和训练时的做法一样。检查点里自带归一化统计 |
+
+**采样噪声（`--noise`）**。π₀.₅ 用流匹配生成动作：每次推理从一份高斯噪声出发，逐步变成动作块。噪声不同，动作就略有不同。
+
+- `--noise seeded`（默认，2026-11-25 起）：服务用观测内容算出这次请求的噪声。具体是把方案名、`--noise-seed`、tick、指令、8 维状态和两路图像（模型实际收到的像素）一起做 SHA-256，用它作随机数种子，生成形状为（动作块长度, 动作维度）的标准正态噪声，`pi05_libero` 是 (10, 32)，再传给 openpi 的 `Policy.infer(..., noise=...)`。同一个观测永远得到同一份噪声，和请求到达的先后、服务是否重启都无关。想换一组同样可复现的噪声，改 `--noise-seed`。
+- `--noise policy`：交给 openpi 自己抽噪声：服务启动时有一个固定的种子，每处理一个请求往后切一份，所以噪声取决于这是第几个请求；多个评估进程并发时，顺序每次都不同。旧布局的零样本 M0（2026-11-18、11-20）就是这样跑的。
+- 服务的 `/health` 会报告 `noise`（模式、方案、种子、形状），评估把它记进每条 `result.json` 的 `policy.adapter_status.service_noise`；固定噪声时，每次请求的 `noise_key`（前 16 位十六进制）会写进 `--request-log`。
+- 噪声固定只保证模型每次拿到相同的输入。整条轨迹能否逐字节复现，还要看显卡上的计算是否确定，以评估的 `--recheck` 结果为准。
 
 ## 测试与边界
 
