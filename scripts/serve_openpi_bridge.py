@@ -6,7 +6,10 @@ Runs in openpi's own environment (Python 3.11 + JAX), never in the simulation ba
     ~/projects/openpi/.venv/bin/python scripts/serve_openpi_bridge.py \\
     --config pi05_libero --checkpoint ~/.cache/openpi/openpi-assets/checkpoints/pi05_libero --port 8000
 
-The checkpoint must already be a local directory; this service never downloads anything.
+The checkpoint must already be a local directory; this service never downloads anything. A checkpoint trained
+with RoboLab's LoRA config is served the same way with --config pi05_robolab_lora and its step directory, e.g.
+outputs/openpi_checkpoints/pi05_robolab_lora/<exp>/<step>; that config is not part of openpi, so it is first
+registered from scripts/openpi_robolab.py, as training does. The checkpoint carries its own norm stats.
 
 Protocol (the client is robolab.policy.HttpPolicy, used by the 'pi05' VlaAdapter):
   GET  /health   service, protocol=1, action_space=libero_osc_7d, family=openpi, model_loaded, config, checkpoint,
@@ -78,6 +81,7 @@ CLIP_TOLERANCE = 0.05
 MAX_REQUEST_BYTES = 5_000_000
 CAMERA_KEYS = (('agentview', 'observation/image'), ('robot0_eye_in_hand', 'observation/wrist_image'))
 IMAGE_CONVENTION = 'openpi_libero_rotated_180 = canonical[:, ::-1]'
+ROBOLAB_CONFIGS = ROOT/'scripts'/'openpi_robolab.py'   # our LoRA training configs, registered at run time
 NOISE_MODES = ('seeded', 'policy')
 NOISE_SCHEME = 'robolab-openpi-noise-v1'
 NOISE_INPUTS = ('observation/state', 'observation/image', 'observation/wrist_image')
@@ -317,10 +321,36 @@ def make_server(bridge, host='127.0.0.1', port=8000):
     return server
 
 
+def register_robolab_config(config_name, registry, module_path=ROBOLAB_CONFIGS):
+    """Add a RoboLab training config to openpi's config registry so its checkpoints can be served.
+
+    openpi looks configs up in openpi.training.config._CONFIGS_DICT. Our LoRA configs are not in openpi's source:
+    scripts/openpi_robolab.py builds them (make_config) and adds them at run time (register) for training, and
+    serving a checkpoint trained with one needs the same config. Configs openpi already has (pi05_libero) never
+    get here. The checkpoint carries its own norm stats, so only the model and data settings matter.
+    """
+    import importlib.util
+
+    if not Path(module_path).is_file():
+        raise SystemExit(f'{config_name} is not an openpi config and {module_path} is missing')
+    spec = importlib.util.spec_from_file_location('openpi_robolab', module_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    known = getattr(module, 'CONFIG_NAME', None)
+    if config_name != known:
+        raise SystemExit(f'{config_name} is neither an openpi config nor the RoboLab config {known!r} '
+                         f'defined in {module_path}')
+    if config_name in registry:
+        return registry[config_name]
+    return module.register(module.make_config())   # openpi_robolab.register adds it to openpi's registry
+
+
 def load_openpi_policy(config_name, checkpoint):
     from openpi.policies import policy_config
     from openpi.training import config as openpi_config
 
+    if config_name not in openpi_config._CONFIGS_DICT:
+        register_robolab_config(config_name, openpi_config._CONFIGS_DICT)
     config = openpi_config.get_config(config_name)
     if not isinstance(config.data, openpi_config.LeRobotLiberoDataConfig):
         raise SystemExit(f'{config_name} is not a LIBERO-format openpi config; this bridge serves {ACTION_SPACE} only')
@@ -348,8 +378,11 @@ def warm_up(policy, example, noise_shape=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--config', default='pi05_libero', help='openpi training config name')
-    parser.add_argument('--checkpoint', type=Path, required=True, help='local openpi checkpoint directory')
+    parser.add_argument('--config', default='pi05_libero',
+                        help="training config: one of openpi's (pi05_libero) or RoboLab's LoRA config from "
+                             'scripts/openpi_robolab.py (pi05_robolab_lora), which is registered first')
+    parser.add_argument('--checkpoint', type=Path, required=True,
+                        help='local openpi checkpoint directory (the step directory, containing params/ and assets/)')
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=8000)
     parser.add_argument('--request-log', type=Path, help='append one JSON line per /predict request')

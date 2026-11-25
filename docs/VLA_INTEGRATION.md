@@ -107,6 +107,7 @@ PYTHONPATH="$PWD:/home/openvla/projects/openvla-oft:/home/openvla/projects/LIBER
 | 输出 | 夹爪等维度超出 [−1, 1] 不到 0.05 的裁剪到 ±1 并报告次数；超出更多的返回错误、不裁剪 |
 | 并发 | 推理加锁串行 |
 | 只用本地权重 | `--checkpoint` 必须是本地目录，服务从不下载 |
+| 我们训练的模型 | `--config pi05_robolab_lora`，`--checkpoint` 指向训练输出的步数目录，例如 `outputs/openpi_checkpoints/pi05_robolab_lora/<实验名>/<步数>`。这个配置不在 openpi 里，服务会先从 `scripts/openpi_robolab.py` 把它注册进 openpi 的配置表，和训练时的做法一样。检查点里自带归一化统计 |
 
 **采样噪声（`--noise`）**。π₀.₅ 用流匹配生成动作：每次推理从一份高斯噪声出发，逐步变成动作块。噪声不同，动作就略有不同。
 

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -392,6 +393,53 @@ class SeededNoiseTests(ServerCase):
         self.assertEqual((seeded['with_noise'], plain['with_noise']), (True, False))
         self.assertEqual((policy.noises[0].shape, policy.noises[0].dtype), (self.SHAPE, np.float32))
         self.assertIsNone(policy.noises[1])
+
+
+FAKE_TRAINING_CONFIGS = '''
+CONFIG_NAME = 'pi05_robolab_lora'
+
+
+def make_config():
+    return dict(name=CONFIG_NAME, model='pi05 + LoRA')
+
+
+def register(config):
+    return dict(config, registered=True)
+'''
+
+
+class ConfigRegistrationTests(unittest.TestCase):
+    """Our LoRA configs live outside openpi; the bridge registers them before loading a checkpoint."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.directory = Path(directory.name)
+        self.module = self.directory/'openpi_robolab.py'
+        self.module.write_text(FAKE_TRAINING_CONFIGS)
+
+    def test_robolab_config_is_built_and_registered(self):
+        config = bridge.register_robolab_config('pi05_robolab_lora', {}, self.module)
+        self.assertEqual(config, dict(name='pi05_robolab_lora', model='pi05 + LoRA', registered=True))
+
+    def test_a_registered_config_is_reused(self):
+        existing = object()
+        self.assertIs(bridge.register_robolab_config('pi05_robolab_lora', {'pi05_robolab_lora': existing},
+                                                     self.module), existing)
+
+    def test_unknown_config_or_missing_script_is_refused(self):
+        with self.assertRaises(SystemExit):
+            bridge.register_robolab_config('pi05_robolab_typo', {}, self.module)
+        with self.assertRaises(SystemExit):
+            bridge.register_robolab_config('pi05_robolab_lora', {}, self.directory/'missing.py')
+
+    @unittest.skipUnless(bridge.ROBOLAB_CONFIGS.is_file(), 'scripts/openpi_robolab.py not in this checkout')
+    def test_training_script_offers_what_the_bridge_calls(self):
+        spec = importlib.util.spec_from_file_location('openpi_robolab_check', bridge.ROBOLAB_CONFIGS)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)   # no openpi import at module level
+        self.assertEqual(module.CONFIG_NAME, 'pi05_robolab_lora')
+        self.assertTrue(callable(module.make_config) and callable(module.register))
 
 
 class Pi05AdapterTests(ServerCase):
