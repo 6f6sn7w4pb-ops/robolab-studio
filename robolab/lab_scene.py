@@ -21,11 +21,26 @@ ROBOT_BASE = 'robot0_base'
 HAND_BODY = 'robot0_right_hand'
 OBSTACLE_BODY = 'milk_1_main'
 
-# RealSense D455 colour sensor (OV9782, global shutter). Retail listings give 90 x 65 deg (+-3)
-# at 1280 x 800; some list 86 x 57 deg. Intel's own spec page was unreachable when this was
-# written, so the camera study also runs with the narrower value.
+# RealSense D455 colour sensor (OV9782, global shutter): nominal retail values (90 x 65 deg at
+# 1280 x 800; some listings say 86 x 57 deg). The 2026-11-17 camera study
+# (scripts/study_lab_cameras.py) ran with these; the measured units are D455_UNITS below.
 D455_RGB = dict(width=1280, height=800, vfov_deg=65., hfov_deg=90., alt_vfov_deg=57.,
                 body_m=(.124, .029, .026))      # length, height, depth
+
+# The lab's two D455 units, read from the cameras on 2026-11-25 (docs/D455_CAMERA_PARAMS.md,
+# docs/calibration/d455_cameras.json; roles assigned by the user the same day). fovy is MuJoCo's
+# vertical field of view of the 1280 x 800 colour stream, 2 atan(800 / (2 fy)). The two units'
+# focal lengths differ by 2.4 %, so each simulated camera uses its own unit's value.
+D455_UNITS = {
+    'wrist': dict(label='camera1', serial='246322302827', fovy_deg=63.7889),
+    'external': dict(label='camera2', serial='141322252821', fovy_deg=65.0309),
+}
+
+# The RGB lens is not at the middle of the 124 mm body. The cameras' own extrinsics put it
+# 58.9 mm from the left infrared imager towards the right one, and the imagers 95.0 mm apart;
+# with the imagers symmetric about the body centre (an assumption, to be checked with
+# calipers), the lens sits 11.4 mm from the centre towards the image's right.
+D455_LENS_FROM_CENTRE_M = .0114
 
 
 @dataclass(frozen=True)
@@ -102,10 +117,26 @@ def wrist_camera_pose(offset=.06, height=0., tilt_deg=20., aim_depth=.097):
     return np.array([offset, 0., height]), np.r_[right, up], forward, math.degrees(math.atan2(offset, aim_depth-height))
 
 
-def lab_xml_hook(layout=LabLayout(), cameras=(), wrist=None, d455_body=True, fovy_deg=None):
-    """xml_hook for PilotScene.install. cameras: [(name, position, target)] in world metres;
-    wrist: dict(name=..., offset=..., height=..., tilt_deg=...) or None."""
-    fovy = D455_RGB['vfov_deg'] if fovy_deg is None else fovy_deg
+def d455_body_box(position, xyaxes, forward, lens_from_centre=D455_LENS_FROM_CENTRE_M, front_ahead_m=-.001):
+    """The D455 body as a box around its RGB lens: (centre, axes, half_sizes), in the frame of
+    ``position``. axes rows are the box's length (image right), height (image up) and depth
+    (backwards from the lens) directions. ``front_ahead_m`` is how far the front face is ahead of
+    the lens: the default keeps it 1 mm behind, so the rendered camera does not see its own body;
+    clearance checks use the physical front glass a few millimetres ahead of the optical centre."""
+    length, height, depth = D455_RGB['body_m']
+    right, up = np.asarray(xyaxes[:3], float), np.asarray(xyaxes[3:], float)
+    forward = np.asarray(forward, float)
+    centre = np.asarray(position, float)+forward*(front_ahead_m-depth/2)-right*lens_from_centre
+    return centre, np.stack([right, up, -forward]), np.array([length/2, height/2, depth/2])
+
+
+def lab_xml_hook(layout=LabLayout(), cameras=(), wrist=None, d455_body=True, external_fovy_deg=None,
+                 wrist_fovy_deg=None):
+    """xml_hook for PilotScene.install. cameras: [(name, position, target)] in world metres, all
+    rendered as the external unit; wrist: dict(name=..., offset=..., height=..., tilt_deg=...) or
+    None. Each D455 unit gets its own measured fovy (D455_UNITS) unless overridden."""
+    fovy = D455_UNITS['external']['fovy_deg'] if external_fovy_deg is None else external_fovy_deg
+    wrist_fovy = D455_UNITS['wrist']['fovy_deg'] if wrist_fovy_deg is None else wrist_fovy_deg
 
     def hook(scene, xml_text):
         root = ET.fromstring(xml_text)
@@ -133,13 +164,12 @@ def lab_xml_hook(layout=LabLayout(), cameras=(), wrist=None, d455_body=True, fov
             position, xyaxes, forward, _ = wrist_camera_pose(wrist.get('offset', .06), wrist.get('height', 0.),
                                                              wrist['tilt_deg'])
             if d455_body:
-                length, height, depth = D455_RGB['body_m']
-                centre = position-forward*(depth/2+.001)
+                centre, _, half = d455_body_box(position, xyaxes, forward)
                 ET.SubElement(hand, 'geom', name=wrist['name']+'_body', type='box', group='1',
                               contype='0', conaffinity='0', rgba='.12 .12 .13 1', pos=_fmt(centre),
-                              xyaxes=_fmt(xyaxes), size=_fmt((length/2, height/2, depth/2)))
+                              xyaxes=_fmt(xyaxes), size=_fmt(half))
             ET.SubElement(hand, 'camera', name=wrist['name'], mode='fixed', pos=_fmt(position),
-                          xyaxes=_fmt(xyaxes), fovy=f'{fovy:.6g}')
+                          xyaxes=_fmt(xyaxes), fovy=f'{wrist_fovy:.6g}')
         return ET.tostring(root, encoding='unicode')
 
     return hook

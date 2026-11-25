@@ -4,14 +4,14 @@
 
 ## 1. 先看这里
 
-| 名字 | 序列号 | 仿真里填的 fovy |
-| --- | --- | ---: |
-| **第一台** | 246322302827 | **63.789°** |
-| **第二台** | 141322252821 | **65.031°** |
+| 名字 | 序列号 | 仿真里填的 fovy | 用途（2026-11-25 定） |
+| --- | --- | ---: | --- |
+| **第一台** | 246322302827 | **63.789°** | 腕部 |
+| **第二台** | 141322252821 | **65.031°** | 外部 |
 
 - “第一台”“第二台”已经标记在相机机身上。序列号后四位（2827、2821）很像，靠序列号认相机时看前四位（2463、1413）。
 - 两台型号相同，但出厂标定不一样：第二台的视角宽一点，焦距短 2.4%。**仿真里每台相机要用它自己的 fovy。**
-- 哪台装在腕部、哪台装在外部还没定。装好后，在 [calibration/d455_cameras.json](calibration/d455_cameras.json) 里把对应相机的 `role` 改成 `wrist`（腕部）或 `external`（外部）。
+- **第一台装腕部，第二台做外部相机**（用户 2026-11-25 定；第二台就是 USB 口偏松的那台，见第 7 节）。[calibration/d455_cameras.json](calibration/d455_cameras.json) 里的 `role` 已经填好；[robolab/lab_scene.py](../robolab/lab_scene.py) 的 `D455_UNITS` 按这个分配给两个仿真相机各自的 fovy。腕部支架的位置研究用 [scripts/study_wrist_camera.py](../scripts/study_wrist_camera.py)，支架尺寸说明待写。
 
 ## 2. 这些参数是什么意思
 
@@ -109,13 +109,13 @@ py -m venv $HOME\realsense-tools\venv
 
 | 文件 | 内容 |
 | --- | --- |
-| [calibration/d455_cameras.json](calibration/d455_cameras.json) | 给程序读的数据：两台相机所有彩色分辨率的内参、畸变、视场角、fovy、主点偏移，以及装好后要填的 `role` |
+| [calibration/d455_cameras.json](calibration/d455_cameras.json) | 给程序读的数据：两台相机所有彩色分辨率的内参、畸变、视场角、fovy、主点偏移，以及 `role`（第一台 `wrist`，第二台 `external`） |
 | [calibration/camera1_246322302827_rs-enumerate-devices-c.txt](calibration/camera1_246322302827_rs-enumerate-devices-c.txt) | 第一台：官方工具的原始输出，包括彩色、深度、红外、IMU 的全部内参和外参 |
 | [calibration/camera2_141322252821_rs-enumerate-devices-c.txt](calibration/camera2_141322252821_rs-enumerate-devices-c.txt) | 第二台：同上 |
 | [../scripts/read_realsense_params.py](../scripts/read_realsense_params.py) | 读取脚本（`--self-test` 可以在不接相机的情况下自检） |
 
 ## 9. 下一步
 
-1. 装好相机后，确定哪台在腕部、哪台在外部，填 `role`。
-2. 把各自的 fovy 填进 [robolab/lab_scene.py](../robolab/lab_scene.py)。现在两台仿真相机统一用 65°，要改成按相机取值。
-3. 装好后拍真机照片，和仿真画面叠在一起核对。
+1. ~~确定哪台在腕部、哪台在外部，填 `role`。~~ 已完成（2026-11-25：第一台腕部，第二台外部）。
+2. ~~把各自的 fovy 填进 [robolab/lab_scene.py](../robolab/lab_scene.py)。~~ 已完成（2026-11-25：`D455_UNITS`，测试核对它和 JSON 一致）。
+3. 写腕部支架尺寸说明（位置研究 [scripts/study_wrist_camera.py](../scripts/study_wrist_camera.py) 已做，数字可用 [scripts/wrist_mount_spec.py](../scripts/wrist_mount_spec.py) 复算），打印支架；装好后拍真机照片，和仿真画面叠在一起核对。

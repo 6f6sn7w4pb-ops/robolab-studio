@@ -10,7 +10,7 @@
     ]
   },
   "conventions": {
-    "role": "wrist or external; null until the cameras are mounted",
+    "role": "wrist or external; assigned by the user on 2026-11-25 (camera1 on the wrist, camera2 external)",
     "pixels": "(0, 0) is the centre of the top-left pixel, so the image centre is ((W - 1) / 2, (H - 1) / 2)",
     "distortion": "librealsense inverse_brown_conrady, coeffs [k1, k2, p1, p2, k3]",
     "fov_deg": "edge to edge, the same formula as rs2_fov and rs-enumerate-devices",
@@ -26,7 +26,7 @@
       "model": "RealSense D455",
       "firmware": "5.13.0.50",
       "usb": "3.2",
-      "role": null,
+      "role": "wrist",
       "sim_1280x800": {
         "fovy_deg": 63.7889,
         "fx_over_fy_minus_1": 0.001447,
@@ -247,7 +247,7 @@
       "model": "RealSense D455",
       "firmware": "5.13.0.50",
       "usb": "3.2",
-      "role": null,
+      "role": "external",
       "sim_1280x800": {
         "fovy_deg": 65.0309,
         "fx_over_fy_minus_1": 0.001171,
