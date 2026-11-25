@@ -150,6 +150,15 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(len(rows), 9)
         self.assertTrue(rows[1].startswith('case_0,test_unseen,box_step,thick,seen,1,1,1,0,1,1,1,0'))
 
+    def test_warns_when_model_runs_saw_different_image_encodings(self):
+        png = dict(summary([(True, True)]*2), policy_spec=dict(kind='adapter', adapter='pi05', image_encoding='png'))
+        jpeg = dict(summary([(True, True)]*2), policy_spec=dict(kind='adapter', adapter='pi05'))   # pre-2026-11-25
+        teacher = dict(summary([(True, True)]*2), policy_spec=dict(kind='teacher'))
+        runs = [load_run(self.write(name, value), name) for name, value in (('png', png), ('jpeg', jpeg),
+                                                                              ('teacher', teacher))]
+        self.assertIn('image_encoding differs between model runs: png=png, jpeg=jpeg', compare(runs)['warnings'])
+        self.assertFalse(any('image_encoding' in text for text in compare([runs[0], runs[2]])['warnings']))
+
     def test_rejects_mismatched_or_disjoint_runs(self):
         a = load_run(self.write('a', summary([(True, True)]*2)))
         with self.assertRaises(ValueError):

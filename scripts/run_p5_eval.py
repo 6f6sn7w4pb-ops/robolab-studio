@@ -4,11 +4,12 @@
                  [--splits test_instance,test_unseen] [--workers N] [--recheck K] [--reference]
   run_p5_eval.py --policy adapter:mock --output-dir DIR
   run_p5_eval.py --policy teacher --scene-set extended --anti-roll [--appearance all] --output-dir DIR
-  run_p5_eval.py --policy adapter:<name> --endpoint http://HOST:PORT --output-dir DIR
+  run_p5_eval.py --policy adapter:<name> --endpoint http://HOST:PORT [--image-encoding png|jpeg] --output-dir DIR
   run_p5_eval.py --output-dir DIR --resume | --resummarize
 
 Policies: teacher (privileged rule teacher, harness reference), wrong_part_teacher (aims at the
-other part; part-metric control), adapter:<name> (registered VlaAdapter via robolab.observation.v1).
+other part; part-metric control), adapter:<name> (registered VlaAdapter via robolab.observation.v1;
+images are sent as lossless PNG unless --image-encoding jpeg).
 Scene conditions (evaluation only, recorded in the config): --scene-set extended adds 176 audited
 extra test episodes; --anti-roll gives cylinder targets rolling friction against the floor;
 --appearance lighting,background,objects|all applies seeded per-scene rendering changes.
@@ -129,6 +130,9 @@ def main():
     parser.add_argument('--policy', default='teacher')
     parser.add_argument('--endpoint', default='', help='inference service for adapter policies')
     parser.add_argument('--timeout', type=float, default=10.)
+    parser.add_argument('--image-encoding', choices=('png', 'jpeg'), default='png',
+                        help='how adapter policies receive images: png (lossless, default) or jpeg (quality 95, '
+                             'what runs before 2026-11-25 used). --resume keeps the encoding of the original run')
     parser.add_argument('--dataset', type=Path, default=ROOT/'outputs'/'p4d_dataset_v1',
                         help='P4-D dataset directory whose plan supplies the scenes')
     parser.add_argument('--splits', default='test_instance,test_unseen')
@@ -182,7 +186,7 @@ def main():
         if not splits or set(splits)-known:
             parser.error('unknown split in --splits')
         try:
-            spec = policy_spec(args.policy, args.endpoint, args.timeout)
+            spec = policy_spec(args.policy, args.endpoint, args.timeout, args.image_encoding)
         except ValueError as error:
             parser.error(str(error))
         if spec['kind'] == 'adapter' and args.reference:

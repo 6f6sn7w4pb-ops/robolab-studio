@@ -13,6 +13,9 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 DEFAULT_MODEL='moojink/openvla-7b-oft-finetuned-libero-object'
+# Image encodings of robolab.observation.v1 and the file signature each must start with. PNG is
+# lossless (what the P5 evaluation sends since 2026-11-25); JPEG is kept for the GUI and older runs.
+IMAGE_SIGNATURES={'png_base64':b'\x89PNG\r\n\x1a\n','jpeg_base64':b'\xff\xd8'}
 
 def scan_checkpoints(extra_roots=()):
     from .config import ROOT, OFT_ROOT
@@ -49,11 +52,12 @@ def validate_observation(observation):
     images=observation.get('images',{})
     for name in ('agentview','robot0_eye_in_hand'):
         value=images.get(name,{})
-        if value.get('encoding')!='jpeg_base64' or not isinstance(value.get('data'),str):
+        encoding=value.get('encoding')
+        if encoding not in IMAGE_SIGNATURES or not isinstance(value.get('data'),str):
             raise ValueError('Missing RGB camera: '+name)
         raw=base64.b64decode(value['data'],validate=True)
-        if not raw.startswith(b'\xff\xd8') or len(raw)>2_000_000:
-            raise ValueError('Invalid JPEG image: '+name)
+        if not raw.startswith(IMAGE_SIGNATURES[encoding]) or len(raw)>2_000_000:
+            raise ValueError(f'Invalid {encoding} image: '+name)
     return observation
 
 @dataclass
@@ -142,7 +146,8 @@ class OpenpiAdapter(VlaAdapter):
         self.endpoint=endpoint
         self.transport=HttpPolicy(endpoint,timeout) if endpoint else None
         self.service_config=None
-    def status(self): return dict(self.model_status.as_dict(),service_config=self.service_config)
+        self.service_noise=None
+    def status(self): return dict(self.model_status.as_dict(),service_config=self.service_config,service_noise=self.service_noise)
     def load(self):
         if not self.transport: raise ValueError('请设置 openpi 推理服务地址（scripts/serve_openpi_bridge.py）；本操作不会下载权重或占用本机 GPU')
         health=self.transport.connect()
@@ -150,6 +155,9 @@ class OpenpiAdapter(VlaAdapter):
             raise ValueError('该服务不是已加载真实 openpi 模型的服务；测试后端不能标记为真实模型')
         if health.get('model_loaded') is not True: raise ValueError('服务尚未加载 openpi 模型')
         self.service_config=health.get('config')
+        # How the service draws flow-matching noise (seeded per observation, or the policy's own sequence);
+        # recorded with every evaluated episode through AdapterPolicy.describe().
+        self.service_noise=health.get('noise')
         if health.get('checkpoint'): self.model_status.checkpoint=str(health['checkpoint'])
         self.model_status.stage='model_loaded'; self.model_status.model_loaded=True
         self.model_status.detail='服务报告模型已加载；等待一次真实推理验证'

@@ -13,8 +13,8 @@ from urllib.request import Request, urlopen
 
 import numpy as np
 
-from robolab.p5_eval import AdapterPolicy, bridge_observation
-from robolab.policy import HttpPolicy, adapter_catalog, create_vla_adapter
+from robolab.p5_eval import AdapterPolicy, bridge_observation, make_policy, policy_spec
+from robolab.policy import HttpPolicy, adapter_catalog, create_vla_adapter, validate_observation
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT/'scripts'/'serve_openpi_bridge.py'
@@ -53,9 +53,16 @@ def raw_observation(size=224, instruction='Pick up the object by its thick end.'
                 action_space='robosuite_1_4_1_panda_osc_pose_normalized_7d_v1')
 
 
-def make_observation(sequence=1, size=224):
-    """Exactly what the evaluation sends: p5_eval.bridge_observation (PIL JPEG, canonical top-left)."""
-    return bridge_observation(raw_observation(size), sequence)
+def make_observation(sequence=1, size=224, image_encoding='png'):
+    """Exactly what the evaluation sends: p5_eval.bridge_observation (PIL PNG by default, canonical top-left)."""
+    return bridge_observation(raw_observation(size), sequence, image_encoding)
+
+
+def textured_observation(seed=0, tick=4, instruction='Pick up the object by its thin end.'):
+    """Random pixels: any lossy step in the image path shows up as a pixel difference."""
+    rng = np.random.default_rng(seed)
+    images = {name: rng.integers(0, 256, (224, 224, 3), dtype=np.uint8) for name in ('agentview', 'robot0_eye_in_hand')}
+    return dict(raw_observation(), tick=tick, instruction=instruction, images=images)
 
 
 def post(endpoint, payload):
@@ -66,21 +73,23 @@ def post(endpoint, payload):
 
 
 class FakePolicy:
-    """Stands in for openpi's Policy: records inputs, returns a fixed chunk, tracks concurrent calls."""
+    """Stands in for openpi's Policy: records inputs and noise, returns a fixed chunk, tracks concurrent calls."""
     def __init__(self, actions=None, delay=0.):
         self.actions = np.zeros((10, 7)) if actions is None else np.asarray(actions, dtype=float)
         self.delay = delay
         self.inputs = []
+        self.noises = []
         self.active = self.max_active = 0
         self.guard = threading.Lock()
 
-    def infer(self, inputs):
+    def infer(self, inputs, *, noise=None):
         with self.guard:
             self.active += 1
             self.max_active = max(self.max_active, self.active)
         try:
             time.sleep(self.delay)
             self.inputs.append(inputs)
+            self.noises.append(noise)
             return {'actions': self.actions.copy(), 'policy_timing': {'infer_ms': 0.}}
         finally:
             with self.guard:
@@ -88,9 +97,9 @@ class FakePolicy:
 
 
 class ServerCase(unittest.TestCase):
-    def serve(self, policy, *, test_backend=True):
+    def serve(self, policy, *, test_backend=True, **options):
         service = bridge.OpenpiBridge(policy, config_name='pi05_libero', checkpoint='/fixture/pi05_libero',
-                                      test_backend=test_backend)
+                                      test_backend=test_backend, **options)
         server = bridge.make_server(service, '127.0.0.1', 0)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -254,6 +263,137 @@ class BridgeProtocolTests(ServerCase):
         self.assertEqual(process.returncode, 0, process.stderr)
 
 
+class ImageEncodingTests(ServerCase):
+    """The model must receive the training-view pixels: lossless PNG, flipped the openpi LIBERO way."""
+
+    def test_png_reaches_the_model_pixel_for_pixel(self):
+        raw = textured_observation()
+        inputs = bridge.openpi_inputs(bridge_observation(raw, 1, 'png'))
+        for camera, key in bridge.CAMERA_KEYS:
+            np.testing.assert_array_equal(inputs[key], raw['images'][camera][:, ::-1])
+        # The old JPEG path (quality 95) changes pixels; that is why the evaluation moved to PNG.
+        jpeg = bridge.openpi_inputs(bridge_observation(raw, 1, 'jpeg'))
+        self.assertGreater(int(np.abs(jpeg['observation/image'].astype(int)
+                                      - raw['images']['agentview'][:, ::-1].astype(int)).max()), 0)
+
+    def test_png_encoding_is_deterministic(self):
+        raw = textured_observation()
+        self.assertEqual(bridge_observation(raw, 1, 'png')['images'], bridge_observation(raw, 2, 'png')['images'])
+
+    def test_observation_accepts_png_and_jpeg_only(self):
+        for encoding in ('png', 'jpeg'):
+            observation = make_observation(image_encoding=encoding)
+            self.assertEqual(observation['images']['agentview']['encoding'], encoding+'_base64')
+            validate_observation(observation)
+        mislabelled = make_observation(image_encoding='jpeg')
+        mislabelled['images']['agentview']['encoding'] = 'png_base64'
+        unknown = make_observation()
+        unknown['images']['agentview']['encoding'] = 'raw_base64'
+        for name, observation in (('mislabelled', mislabelled), ('unknown', unknown)):
+            with self.subTest(name), self.assertRaises(ValueError):
+                validate_observation(observation)
+
+    def test_evaluation_sends_the_encoding_its_spec_names(self):
+        policy = FakePolicy()
+        _, endpoint = self.serve(policy, test_backend=False)
+        raw = textured_observation()
+        expected = raw['images']['agentview'][:, ::-1]
+        current = policy_spec('adapter:pi05', endpoint, 5.)
+        legacy = {key: value for key, value in current.items() if key != 'image_encoding'}   # pre-2026-11-25 config
+        for spec, encoding, exact in ((current, 'png', True), (legacy, 'jpeg', False)):
+            with self.subTest(encoding):
+                evaluation_policy = make_policy(spec)
+                self.addCleanup(evaluation_policy.close)
+                self.assertEqual((evaluation_policy.image_encoding, evaluation_policy.describe()['image_encoding']),
+                                 (encoding, encoding))
+                evaluation_policy.act(raw)
+                received = policy.inputs[-1]['observation/image']
+                self.assertEqual(bool(np.array_equal(received, expected)), exact)
+
+
+class SeededNoiseTests(ServerCase):
+    """Seeded noise depends on the observation only, never on request order."""
+    SHAPE = (10, 32)
+
+    def test_same_observation_gets_the_same_noise_in_any_order(self):
+        first, second = make_observation(1), bridge_observation(textured_observation(), 2)
+        runs = []
+        for order in ((first, second), (second, first)):
+            policy = FakePolicy()
+            service = bridge.OpenpiBridge(policy, config_name='pi05_libero', checkpoint='/fixture', test_backend=True,
+                                          noise='seeded', noise_shape=self.SHAPE)
+            responses = [service.predict(observation) for observation in order]
+            runs.append({response['observation_id']: (response['noise_key'], noise)
+                         for response, noise in zip(responses, policy.noises)})
+        for observation_id in (1, 2):
+            (key_a, noise_a), (key_b, noise_b) = runs[0][observation_id], runs[1][observation_id]
+            self.assertEqual(key_a, key_b)
+            self.assertEqual(len(key_a), 16)
+            self.assertEqual((noise_a.shape, noise_a.dtype), (self.SHAPE, np.float32))
+            np.testing.assert_array_equal(noise_a, noise_b)
+        self.assertFalse(np.array_equal(runs[0][1][1], runs[0][2][1]))
+
+    def test_every_input_and_the_seed_change_the_key(self):
+        base = bridge.openpi_inputs(make_observation())
+        reference = bridge.noise_key(base, 4, 0)
+        self.assertEqual(reference, bridge.noise_key(bridge.openpi_inputs(make_observation()), 4, 0))
+        prompt = dict(base, prompt=base['prompt']+' ')
+        state = dict(base, **{'observation/state': base['observation/state']+1e-9})
+        image = dict(base, **{'observation/image': base['observation/image'].copy()})
+        image['observation/image'][0, 0, 0] ^= 1
+        wrist = dict(base, **{'observation/wrist_image': base['observation/wrist_image'].copy()})
+        wrist['observation/wrist_image'][223, 223, 2] ^= 1
+        variants = dict(tick=bridge.noise_key(base, 5, 0), seed=bridge.noise_key(base, 4, 1),
+                        prompt=bridge.noise_key(prompt, 4, 0), state=bridge.noise_key(state, 4, 0),
+                        image=bridge.noise_key(image, 4, 0), wrist=bridge.noise_key(wrist, 4, 0))
+        for name, key in variants.items():
+            with self.subTest(name):
+                self.assertNotEqual(key, reference)
+        self.assertEqual(len(set(variants.values())), len(variants))
+
+    def test_seeded_noise_is_standard_normal_and_repeatable(self):
+        key = bridge.noise_key(bridge.openpi_inputs(make_observation()), 4, 0)
+        noise = bridge.seeded_noise(key, self.SHAPE)
+        np.testing.assert_array_equal(noise, bridge.seeded_noise(key, self.SHAPE))
+        many = np.concatenate([bridge.seeded_noise(f'{index:064x}', self.SHAPE).ravel() for index in range(50)])
+        self.assertLess(abs(float(many.mean())), .05)
+        self.assertLess(abs(float(many.std())-1.), .05)
+
+    def test_policy_mode_leaves_noise_to_openpi(self):
+        policy = FakePolicy()
+        service, endpoint = self.serve(policy)
+        transport = HttpPolicy(endpoint, timeout=5)
+        transport.connect()
+        result = transport.predict(make_observation())
+        self.assertNotIn('noise_key', result)
+        self.assertEqual(policy.noises, [None])
+        self.assertEqual(service.health()['noise'], dict(mode='policy', scheme=None, seed=None, shape=None))
+
+    def test_health_and_request_log_report_seeded_noise(self):
+        log = io.StringIO()
+        service = bridge.OpenpiBridge(FakePolicy(), config_name='pi05_libero', checkpoint='/fixture', test_backend=True,
+                                      noise='seeded', noise_seed=7, noise_shape=self.SHAPE, request_log=log)
+        self.assertEqual(service.health()['noise'],
+                         dict(mode='seeded', scheme=bridge.NOISE_SCHEME, seed=7, shape=[10, 32]))
+        response = service.predict(make_observation(3))
+        line = json.loads(log.getvalue())
+        self.assertEqual((line['observation_id'], line['noise_key']), (3, response['noise_key']))
+
+    def test_bad_noise_settings_are_rejected(self):
+        for options in (dict(noise='seeded'), dict(noise='seeded', noise_shape=(10,)), dict(noise='random')):
+            with self.subTest(options), self.assertRaises(ValueError):
+                bridge.OpenpiBridge(FakePolicy(), config_name='x', checkpoint='/fixture', **options)
+
+    def test_warm_up_compiles_the_call_that_requests_will_make(self):
+        example = bridge.openpi_inputs(make_observation())
+        policy = FakePolicy()
+        seeded = bridge.warm_up(policy, example, self.SHAPE)
+        plain = bridge.warm_up(policy, example)
+        self.assertEqual((seeded['with_noise'], plain['with_noise']), (True, False))
+        self.assertEqual((policy.noises[0].shape, policy.noises[0].dtype), (self.SHAPE, np.float32))
+        self.assertIsNone(policy.noises[1])
+
+
 class Pi05AdapterTests(ServerCase):
     def test_registered_with_english_label(self):
         entry = next(item for item in adapter_catalog() if item['id'] == 'pi05')
@@ -291,6 +431,12 @@ class Pi05AdapterTests(ServerCase):
         self.assertEqual(policy.last_response, {'is_mock': False, 'real_inference': True, 'source': 'openpi:pi05_libero'})
         policy.close()
         self.assertFalse(policy.adapter.status()['model_loaded'])
+
+    def test_episode_records_how_the_service_draws_noise(self):
+        service, endpoint = self.serve(FakePolicy(), test_backend=False, noise='seeded', noise_shape=(10, 32))
+        policy = AdapterPolicy('pi05', endpoint=endpoint, timeout=5)
+        self.addCleanup(policy.close)
+        self.assertEqual(policy.describe()['adapter_status']['service_noise'], service.health()['noise'])
 
 
 if __name__ == '__main__':

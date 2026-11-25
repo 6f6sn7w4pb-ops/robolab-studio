@@ -10,8 +10,8 @@ import unittest
 import numpy as np
 
 from robolab.p5_eval import (EPISODE_SCHEMA, METRICS_VERSION, OBSTACLE_MOVED_M, SETTLE_TICKS, SUMMARY_SCHEMA, build_summary,
-                             compare_runs, episode_metrics, group_stats, policy_spec, reference_physics_identical,
-                             summarize, wilson)
+                             compare_runs, describe_without_loading, episode_metrics, group_stats, policy_image_encoding,
+                             policy_spec, reference_physics_identical, summarize, wilson)
 
 ROOT = Path(__file__).resolve().parents[1]
 HAS_PIL = importlib.util.find_spec('PIL') is not None
@@ -143,6 +143,21 @@ class MetricTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 policy_spec(bad)
 
+    def test_adapter_image_encoding_is_recorded_and_old_configs_mean_jpeg(self):
+        spec = policy_spec('adapter:pi05', 'http://127.0.0.1:8000', 60.)
+        self.assertEqual((spec['image_encoding'], policy_image_encoding(spec)), ('png', 'png'))
+        self.assertEqual(policy_spec('adapter:pi05', image_encoding='jpeg')['image_encoding'], 'jpeg')
+        with self.assertRaises(ValueError):
+            policy_spec('adapter:pi05', image_encoding='bmp')
+        # Every adapter run before 2026-11-25 sent JPEG; its config has no image_encoding key.
+        legacy = dict(kind='adapter', adapter='pi05', endpoint='http://127.0.0.1:8000', timeout=60.)
+        self.assertEqual(policy_image_encoding(legacy), 'jpeg')
+        self.assertEqual(describe_without_loading(legacy)['image_encoding'], 'jpeg')
+        self.assertEqual(describe_without_loading(spec)['image_encoding'], 'png')
+        # Teachers read the simulator directly; no images are encoded for them.
+        self.assertIsNone(policy_image_encoding(policy_spec('teacher')))
+        self.assertNotIn('image_encoding', policy_spec('teacher', image_encoding='jpeg'))
+
     def test_worker_budget_respects_memory(self):
         sys.path.insert(0, str(ROOT/'scripts'))
         try:
@@ -240,6 +255,7 @@ class BridgeTests(unittest.TestCase):
                            state=np.arange(8.), joints=np.zeros(7), calibration={}, action_space='osc')
         bridged = bridge_observation(observation, 7)
         self.assertEqual((bridged['observation_id'], bridged['episode_tick'], len(bridged['proprio'])), (7, 3, 8))
+        self.assertEqual({image['encoding'] for image in bridged['images'].values()}, {'png_base64'})
         self.assertEqual(bridged['state_layout'], 'p4_training_view_v1')
         json.dumps(bridged, allow_nan=False)
         result = MockPolicy().predict(bridged)

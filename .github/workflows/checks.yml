@@ -25,3 +25,8 @@ jobs:
           python -m unittest discover -s tests -p 'test_p5_extensions.py' -v
           python -m unittest discover -s tests -p 'test_lab_scene.py' -v
           python -m unittest discover -s tests -p 'test_dataset_fingerprint.py' -v
+      - name: openpi bridge service, observation image encoding and seeded noise (NumPy + Pillow, fake model)
+        run: |
+          python -m pip install Pillow==12.3.0
+          python -m unittest discover -s tests -p 'test_openpi_bridge.py' -v
+          python -m unittest discover -s tests -p 'test_p5_eval.py' -v

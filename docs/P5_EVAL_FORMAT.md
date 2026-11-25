@@ -42,7 +42,7 @@ P5-B 在此基础上加了三样东西（第 6、7 节）：扩展测试场景�
 | --- | --- |
 | `teacher` | P4 规则教师，每个 tick 从实时仿真读部位位置。**特权策略，只作参照上限**，不是学习得到的模型 |
 | `wrong_part_teacher` | 同一个教师，故意去抓另一个部位。用来证明部位指标能区分“抬起了，但部位错了” |
-| `adapter:<name>` | 任何已注册的 `VlaAdapter`，经现有的 `robolab.observation.v1` 桥接（JPEG base64）。`adapter:mock` 是无模型自检；实验室端的推理服务用 `--endpoint http://…` 接入 |
+| `adapter:<name>` | 任何已注册的 `VlaAdapter`，经 `robolab.observation.v1` 桥接，图像默认用无损 PNG 发送（见下面“图像编码”）。`adapter:mock` 是无模型自检；实验室端的推理服务用 `--endpoint http://…` 接入，π₀.₅ 的适配器叫 `pi05` |
 
 桥接观测在 v1 字段之外还带有以下字段，服务端可以据此确认数据约定：
 - `state_layout='p4_training_view_v1'`
@@ -51,6 +51,14 @@ P5-B 在此基础上加了三样东西（第 6、7 节）：扩展测试场景�
 - `episode_tick`
 
 openpi 的 LIBERO 例子把图像旋转 180°，这一步在适配器或服务端做，等价于 `canonical[:, ::-1]`，见 P4_DATASET_FORMAT.md。
+
+**图像编码（`--image-encoding`，2026-11-25 起）**
+
+- `png`（默认）：无损。模型收到的两路图像，和训练视图（以及由它转出的 LeRobot 数据）里同一时刻的图像逐像素相同；关键帧也正好是模型看到的画面。
+- `jpeg`：质量 95，有损。2026-11-25 之前的所有适配器评估（包括旧布局的零样本 M0）都是这样发的，像素会有细微变化，和训练数据不再逐字节一致。只在需要复现旧运行时使用。
+- 编码记在 `eval_config.json` 和 `summary.json` 的 `policy_spec.image_encoding`，每条 `result.json` 的 `policy.image_encoding` 也有。旧运行的配置里没有这个字段，按 JPEG 处理；`--resume` 沿用原运行的编码。
+- 规则教师直接读仿真，不经过图像编码，这个选项对它不起作用。
+- 桌面界面里的“单次观察 → 动作测试”仍然发 JPEG，它只用来检查接口，不用于实验。
 
 ## 4. 输出目录
 
@@ -70,6 +78,7 @@ openpi 的 LIBERO 例子把图像旋转 180°，这一步在适配器或服务�
 
 - 场景来自数据集的 `plan.json`。载入时会按代码和种子重新生成计划，并核对 sha。
 - 确定性策略的结果文件、轨迹和关键帧可以逐字节复现，`--recheck K` 会在每个划分抽一条重跑。
+- π₀.₅ 这类流匹配模型每次推理要用随机噪声。openpi 桥接服务默认按观测内容固定噪声（`--noise seeded`，见 [VLA_INTEGRATION.md](VLA_INTEGRATION.md)），同一个观测总是得到同一份噪声，和请求到达的先后无关。整条复跑能否逐字节一致，还取决于显卡上的计算是否确定，以 `--recheck` 的结果为准。零样本 M0 用的是旧方式（噪声取决于请求顺序），复跑不一致是预期的。
 - 加 `--reference` 时，每个 tick 都与数据集里同一 case 比较：原始轨迹的动作和 qpos，以及 HDF5 训练视图的两路图像和 8 维状态。记录每一类第一次出现差异的 tick。
 - `--resume` 会跳过已完成的条目；写到一半的目录移到 `discarded/`。`--resummarize` 只用已有文件重建汇总，不重新仿真。
 - 每个进程约占 2.7 GB 内存。启动前读取 MemAvailable，自动限制 `--workers`（最多 4 个）。
@@ -121,7 +130,7 @@ bash scripts/launch.sh --p5-eval --policy adapter:<name> --endpoint http://HOST:
 
 [scripts/compare_p5_evals.py](../scripts/compare_p5_evals.py)（代码在 [robolab/p5_compare.py](../robolab/p5_compare.py)）读入 2–8 个已完成的运行目录，只读文件，不做仿真。
 
-- 先找出所有运行都评估过的非对照条目，所有比例都在这批**共享条目**上重算，保证比较的是同一批场景和指令。各运行条目范围不同、状态未完成，或计划 sha、时长、语言、动作块设置不一致时，会给出警告。
+- 先找出所有运行都评估过的非对照条目，所有比例都在这批**共享条目**上重算，保证比较的是同一批场景和指令。各运行条目范围不同、状态未完成，或计划 sha、时长、语言、动作块设置不一致时，会给出警告。模型运行之间的图像编码不同（例如一个是 JPEG 时代的旧运行、一个是 PNG）也会警告，因为两边模型看到的输入不一样。
 - 每两个运行之间，对成功、部位命中、碰撞三项做配对比较：都成立、仅 A、仅 B、都不成立，差值，以及双侧精确 McNemar 检验的 p 值。多组比较时需要自己做多重比较校正。
 - 输出：
   - `comparison.json`：全部数字和每次运行的出处（路径、策略、条件、复跑和参考检查）；

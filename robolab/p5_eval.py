@@ -11,7 +11,9 @@ Policies:
 - teacher / wrong_part_teacher: privileged rule teachers that read simulator geometry. They are
   harness checks (an upper reference and a part-confusion control), not models.
 - adapter:<name>: any registered VlaAdapter (Mock, or a lab-side inference service) through the
-  existing robolab.observation.v1 bridge with JPEG images.
+  existing robolab.observation.v1 bridge. Images go as lossless PNG, so the model receives exactly the
+  pixels a training-view row holds; runs configured before 2026-11-25 sent JPEG (quality 95) and keep
+  doing so on --resume (see policy_image_encoding).
 """
 from dataclasses import dataclass
 import base64
@@ -44,6 +46,11 @@ RESULT_FILE = 'result.json'
 TRACE_FILE = 'trace.jsonl'
 TIMING_FILE = 'timing.json'
 CAMERAS = ('agentview', 'robot0_eye_in_hand')
+# How adapter policies receive images. PNG is lossless; JPEG (quality 95) is what every run before
+# 2026-11-25 used, so an adapter policy_spec without the key means JPEG.
+IMAGE_ENCODINGS = ('png', 'jpeg')
+DEFAULT_IMAGE_ENCODING = 'png'
+LEGACY_IMAGE_ENCODING = 'jpeg'
 TARGET_JOINT = 'p4_stepped_bar_joint'
 OBSTACLE_JOINT = 'p4_distractor_joint'
 
@@ -121,12 +128,29 @@ def encode_jpeg(rgb, quality=95):
     return base64.b64encode(buffer.getvalue()).decode('ascii')
 
 
-def bridge_observation(observation, observation_id):
+def encode_png(rgb):
+    """Lossless and deterministic: PIL's PNG writer stores no timestamp, so equal pixels give equal bytes."""
+    from PIL import Image
+    buffer = io.BytesIO()
+    Image.fromarray(rgb).save(buffer, 'PNG')
+    return base64.b64encode(buffer.getvalue()).decode('ascii')
+
+
+IMAGE_ENCODERS = {'png': ('png_base64', encode_png), 'jpeg': ('jpeg_base64', encode_jpeg)}
+
+
+def policy_image_encoding(spec):
+    """Image encoding an adapter policy_spec asks for; specs written before the key existed mean JPEG."""
+    return spec.get('image_encoding', LEGACY_IMAGE_ENCODING) if spec.get('kind') == 'adapter' else None
+
+
+def bridge_observation(observation, observation_id, image_encoding=DEFAULT_IMAGE_ENCODING):
     """robolab.observation.v1 for VlaAdapter / HTTP services. Extra keys describe the layout."""
+    label, encode = IMAGE_ENCODERS[image_encoding]
     return {'schema': 'robolab.observation.v1', 'observation_id': observation_id,
             'instruction': observation['instruction'], 'sim_time': observation['time_s'],
-            'images': {name: {'encoding': 'jpeg_base64', 'width': 224, 'height': 224, 'origin': 'top_left',
-                              'data': encode_jpeg(observation['images'][name])} for name in CAMERAS},
+            'images': {name: {'encoding': label, 'width': 224, 'height': 224, 'origin': 'top_left',
+                              'data': encode(observation['images'][name])} for name in CAMERAS},
             'proprio': [float(x) for x in observation['state']], 'joints': [float(x) for x in observation['joints']],
             'calibration': observation['calibration'], 'state_layout': OBSERVATION_LAYOUT,
             'image_convention': 'canonical_top_left', 'action_space': observation['action_space'],
@@ -134,11 +158,14 @@ def bridge_observation(observation, observation_id):
 
 
 class AdapterPolicy(EvalPolicy):
-    """Wrap a registered VlaAdapter (MockPolicy, OpenVLA-OFT service, future pi05 adapter)."""
-    def __init__(self, name, **configuration):
+    """Wrap a registered VlaAdapter (MockPolicy, OpenVLA-OFT service, pi05 adapter)."""
+    def __init__(self, name, image_encoding=DEFAULT_IMAGE_ENCODING, **configuration):
         from .policy import create_vla_adapter
+        if image_encoding not in IMAGE_ENCODINGS:
+            raise ValueError('image_encoding must be one of '+', '.join(IMAGE_ENCODINGS))
         self.name = name
         self.policy_id = 'adapter:'+name
+        self.image_encoding = image_encoding
         self.adapter = create_vla_adapter(name, **configuration)
         self.status = self.adapter.load()
         self.is_vla = bool(self.status.get('real_model')) and bool(self.status.get('model_loaded'))
@@ -147,11 +174,11 @@ class AdapterPolicy(EvalPolicy):
 
     def describe(self):
         return dict(super().describe(), adapter=self.name, adapter_status=self.status,
-                    action_space=self.adapter.action_space)
+                    action_space=self.adapter.action_space, image_encoding=self.image_encoding)
 
     def act(self, observation):
         self.sequence += 1
-        result = self.adapter.predict(bridge_observation(observation, self.sequence))
+        result = self.adapter.predict(bridge_observation(observation, self.sequence, self.image_encoding))
         self.last_response = {key: result.get(key) for key in ('is_mock', 'real_inference', 'source')}
         return result['actions']
 
@@ -169,15 +196,18 @@ def make_policy(spec):
         configuration = {}
         if spec.get('endpoint'):
             configuration.update(endpoint=spec['endpoint'], timeout=spec.get('timeout', 10))
-        return AdapterPolicy(spec['adapter'], **configuration)
+        return AdapterPolicy(spec['adapter'], image_encoding=policy_image_encoding(spec), **configuration)
     raise ValueError('Unknown policy kind: '+str(kind))
 
 
-def policy_spec(text, endpoint='', timeout=10.):
+def policy_spec(text, endpoint='', timeout=10., image_encoding=DEFAULT_IMAGE_ENCODING):
     if text in ('teacher', 'wrong_part_teacher'):
         return dict(kind=text)
     if text.startswith('adapter:') and len(text) > 8:
-        return dict(kind='adapter', adapter=text[8:], endpoint=endpoint, timeout=timeout)
+        if image_encoding not in IMAGE_ENCODINGS:
+            raise ValueError('image_encoding must be one of '+', '.join(IMAGE_ENCODINGS))
+        return dict(kind='adapter', adapter=text[8:], endpoint=endpoint, timeout=timeout,
+                    image_encoding=image_encoding)
     raise ValueError('policy must be teacher, wrong_part_teacher or adapter:<name>')
 
 
@@ -674,6 +704,6 @@ def describe_without_loading(spec):
     """Policy description for the config file, without starting a service connection."""
     if spec['kind'] == 'adapter':
         return dict(policy_id='adapter:'+spec['adapter'], privileged=False, is_vla=None,
-                    endpoint=spec.get('endpoint') or None)
+                    endpoint=spec.get('endpoint') or None, image_encoding=policy_image_encoding(spec))
     return make_policy(spec).describe()
 

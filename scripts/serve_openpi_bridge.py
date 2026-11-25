@@ -9,14 +9,17 @@ Runs in openpi's own environment (Python 3.11 + JAX), never in the simulation ba
 The checkpoint must already be a local directory; this service never downloads anything.
 
 Protocol (the client is robolab.policy.HttpPolicy, used by the 'pi05' VlaAdapter):
-  GET  /health   service, protocol=1, action_space=libero_osc_7d, family=openpi, model_loaded, config, checkpoint
+  GET  /health   service, protocol=1, action_space=libero_osc_7d, family=openpi, model_loaded, config, checkpoint,
+                 noise (mode, scheme, seed, shape)
   GET  /stats    counters since start: requests, errors, clipping, inference and queue latency
-  POST /predict  robolab.observation.v1 -> actions (N x 7), action_space, real_inference, is_mock, clipping report
+  POST /predict  robolab.observation.v1 -> actions (N x 7), action_space, real_inference, is_mock, clipping report,
+                 noise_key (seeded mode: first 16 hex digits of the request's noise key)
 
 Input conversion follows openpi's examples/libero/main.py, the client pi05_libero was trained with:
-  - Both JPEG images decode to 224x224x3 uint8. RoboLab images are canonical (top-left origin), i.e.
-    flipud(raw robosuite frame). The openpi client rotates the raw frame by 180 degrees, and
-    raw[::-1, ::-1] == canonical[:, ::-1], so the canonical image is flipped horizontally.
+  - Both images (PNG from the P5 evaluation since 2026-11-25, JPEG from older runs and the GUI) decode to
+    224x224x3 uint8. RoboLab images are canonical (top-left origin), i.e. flipud(raw robosuite frame). The
+    openpi client rotates the raw frame by 180 degrees, and raw[::-1, ::-1] == canonical[:, ::-1], so the
+    canonical image is flipped horizontally.
   - observation/state is RoboLab's 8-D proprio (eef position, axis-angle of the eef quaternion, two gripper
     qpos), the openpi LIBERO definition. pi05_libero itself does not read it: pi0.5 adds no state token and
     the config sets discrete_state_input=False.
@@ -28,9 +31,21 @@ the evaluation should record verbatim come back as a JSON 'error' field with HTT
 HttpPolicy reads; malformed HTTP requests get 400/404.
 
 One model on one GPU: inference is serialized with a lock, and concurrent requests wait their turn.
+
+Flow-matching noise (--noise). openpi samples each action chunk from Gaussian noise. Left to itself
+(--noise policy) the Policy splits a fresh key per request from one start key, so the noise depends on
+the order requests arrive in; with several evaluation workers that order changes from run to run. The
+default (--noise seeded) passes the noise explicitly instead: SHA-256 over the scheme name, --noise-seed,
+the episode tick, the prompt, the 8-D state and both images as the model receives them seeds a NumPy
+generator for an (action_horizon, action_dim) standard-normal array. The same observation therefore always
+gets the same noise, whatever else the service is doing; a different --noise-seed draws a different,
+equally reproducible sample (NumPy's default generator; openpi's lock file pins the NumPy version, so the
+draw is stable for a given openpi environment). Whether whole episodes repeat byte for byte also needs the
+GPU computation to be deterministic, which the evaluation's --recheck shows.
 """
 import argparse
 import base64
+import hashlib
 import io
 import json
 import os
@@ -63,6 +78,9 @@ CLIP_TOLERANCE = 0.05
 MAX_REQUEST_BYTES = 5_000_000
 CAMERA_KEYS = (('agentview', 'observation/image'), ('robot0_eye_in_hand', 'observation/wrist_image'))
 IMAGE_CONVENTION = 'openpi_libero_rotated_180 = canonical[:, ::-1]'
+NOISE_MODES = ('seeded', 'policy')
+NOISE_SCHEME = 'robolab-openpi-noise-v1'
+NOISE_INPUTS = ('observation/state', 'observation/image', 'observation/wrist_image')
 
 
 class ActionRangeError(ValueError):
@@ -101,6 +119,27 @@ def openpi_inputs(observation):
     return inputs
 
 
+def noise_key(inputs, episode_tick, seed=0):
+    """SHA-256 hex digest of what fixes one request's noise: scheme, seed, tick, prompt, state and images.
+
+    Hashes the arrays the model receives (after decoding and flipping), so the key does not depend on how
+    the images travelled, only on their pixels.
+    """
+    digest = hashlib.sha256()
+    digest.update(f'{NOISE_SCHEME}|seed={int(seed)}|tick={episode_tick}|prompt='.encode())
+    digest.update(inputs['prompt'].encode('utf-8'))
+    for key in NOISE_INPUTS:
+        array = np.ascontiguousarray(inputs[key])
+        digest.update(f'|{key}|{array.dtype.str}|{array.shape}|'.encode())
+        digest.update(array.tobytes())
+    return digest.hexdigest()
+
+
+def seeded_noise(key, shape):
+    """Standard-normal float32 noise of the model's (action_horizon, action_dim) shape, seeded by noise_key."""
+    return np.random.default_rng(int(key, 16)).standard_normal(tuple(shape), dtype=np.float32)
+
+
 def bound_actions(actions, tolerance=CLIP_TOLERANCE):
     """(N, 7) chunk -> (list clipped to [-1, 1], clipped value count, max excess beyond 1).
 
@@ -122,17 +161,28 @@ def bound_actions(actions, tolerance=CLIP_TOLERANCE):
 
 
 class OpenpiBridge:
-    """Request handling around any object with infer(dict) -> {'actions': (N, 7)}: an openpi Policy, or a
-    test fake (test_backend=True, which never claims real inference)."""
+    """Request handling around any object with infer(dict, *, noise=None) -> {'actions': (N, 7)}: an openpi
+    Policy, or a test fake (test_backend=True, which never claims real inference).
+
+    noise='seeded' passes infer() noise derived from the observation (noise_key); it needs the model's
+    noise_shape. noise='policy' leaves the noise to the Policy's own key sequence (order dependent).
+    """
 
     def __init__(self, policy, *, config_name, checkpoint, test_backend=False, tolerance=CLIP_TOLERANCE,
-                 request_log=None):
+                 request_log=None, noise='policy', noise_seed=0, noise_shape=None):
+        if noise not in NOISE_MODES:
+            raise ValueError('noise must be one of '+', '.join(NOISE_MODES))
+        if noise == 'seeded' and (noise_shape is None or len(noise_shape) != 2):
+            raise ValueError("noise='seeded' needs the model's (action_horizon, action_dim) noise_shape")
         self.policy = policy
         self.config_name = config_name
         self.checkpoint = str(checkpoint)
         self.test_backend = bool(test_backend)
         self.tolerance = float(tolerance)
         self.request_log = request_log
+        self.noise = noise
+        self.noise_seed = int(noise_seed)
+        self.noise_shape = None if noise_shape is None else tuple(int(n) for n in noise_shape)
         self.inference_lock = threading.Lock()
         self.stats_lock = threading.Lock()
         self.started = time.time()
@@ -140,10 +190,16 @@ class OpenpiBridge:
                              clipped_responses=0, max_excess=0., inference_ms_total=0., inference_ms_max=0.,
                              wait_ms_total=0., wait_ms_max=0.)
 
+    def noise_description(self):
+        if self.noise == 'policy':
+            return dict(mode='policy', scheme=None, seed=None, shape=None)
+        return dict(mode='seeded', scheme=NOISE_SCHEME, seed=self.noise_seed, shape=list(self.noise_shape))
+
     def health(self):
         return dict(service=SERVICE, protocol=PROTOCOL, action_space=ACTION_SPACE, family=FAMILY,
                     model_loaded=True, test_backend=self.test_backend, config=self.config_name,
-                    checkpoint=self.checkpoint, clip_tolerance=self.tolerance, image_convention=IMAGE_CONVENTION)
+                    checkpoint=self.checkpoint, clip_tolerance=self.tolerance, image_convention=IMAGE_CONVENTION,
+                    noise=self.noise_description())
 
     def stats(self):
         with self.stats_lock:
@@ -185,11 +241,16 @@ class OpenpiBridge:
         except Exception as error:
             self._record(identity, error_kind='invalid_observation')
             return dict(identity, error=f'invalid observation: {error}', error_kind='invalid_observation')
+        noise = None
+        if self.noise == 'seeded':
+            key = noise_key(inputs, identity['episode_tick'], self.noise_seed)
+            noise = seeded_noise(key, self.noise_shape)
+            identity['noise_key'] = key[:16]   # first 64 bits, enough to tell requests apart in logs
         queued = time.perf_counter()
         try:
             with self.inference_lock:
                 began = time.perf_counter()
-                output = self.policy.infer(inputs)
+                output = self.policy.infer(inputs) if noise is None else self.policy.infer(inputs, noise=noise)
                 ended = time.perf_counter()
         except Exception as error:
             self._record(identity, error_kind='inference_error')
@@ -266,17 +327,23 @@ def load_openpi_policy(config_name, checkpoint):
     return config, policy_config.create_trained_policy(config, checkpoint)
 
 
-def warm_up(policy):
-    """One inference on openpi's random LIBERO example, so the first real request does not wait for JIT."""
-    from openpi.policies import libero_policy
+def warm_up(policy, example, noise_shape=None):
+    """One inference on an example input, so the first real request does not wait for JIT.
 
+    Passing noise changes what openpi compiles, so in seeded mode the warm-up passes noise as well; otherwise
+    the first real request would compile again.
+    """
     began = time.perf_counter()
-    actions = np.asarray(policy.infer(libero_policy.make_libero_example())['actions'])
+    if noise_shape is None:
+        output = policy.infer(example)
+    else:
+        output = policy.infer(example, noise=np.zeros(tuple(noise_shape), dtype=np.float32))
+    actions = np.asarray(output['actions'])
     seconds = time.perf_counter()-began
     if actions.ndim != 2 or actions.shape[1] != ACTION_DIM or not np.isfinite(actions).all():
         raise SystemExit(f'warm-up produced an unusable action chunk: shape {list(actions.shape)}')
     return dict(seconds=round(seconds, 3), shape=list(actions.shape),
-                max_abs=round(float(np.abs(actions).max()), 6))
+                max_abs=round(float(np.abs(actions).max()), 6), with_noise=noise_shape is not None)
 
 
 def main(argv=None):
@@ -286,6 +353,11 @@ def main(argv=None):
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=8000)
     parser.add_argument('--request-log', type=Path, help='append one JSON line per /predict request')
+    parser.add_argument('--noise', choices=NOISE_MODES, default='seeded',
+                        help='seeded (default): noise fixed by the observation, so the same observation always '
+                             'gets the same noise; policy: openpi draws it in request order (how M0 ran)')
+    parser.add_argument('--noise-seed', type=int, default=0,
+                        help='mixed into the seeded noise; change it to draw a different reproducible sample')
     args = parser.parse_args(argv)
     checkpoint = args.checkpoint.expanduser().resolve()
     if not (checkpoint/'params').is_dir():
@@ -297,15 +369,19 @@ def main(argv=None):
     log(event='loading', config=args.config, checkpoint=str(checkpoint), python=sys.executable,
         xla_preallocate=os.environ.get('XLA_PYTHON_CLIENT_PREALLOCATE', '<default: preallocate 75%>'))
     began = time.perf_counter()
-    _, policy = load_openpi_policy(args.config, checkpoint)
+    config, policy = load_openpi_policy(args.config, checkpoint)
     load_s = round(time.perf_counter()-began, 3)
-    warm = warm_up(policy)
+    noise_shape = (config.model.action_horizon, config.model.action_dim) if args.noise == 'seeded' else None
+    from openpi.policies import libero_policy
+
+    warm = warm_up(policy, libero_policy.make_libero_example(), noise_shape)
     request_log = args.request_log.open('a', encoding='utf-8') if args.request_log else None
-    bridge = OpenpiBridge(policy, config_name=args.config, checkpoint=checkpoint, request_log=request_log)
+    bridge = OpenpiBridge(policy, config_name=args.config, checkpoint=checkpoint, request_log=request_log,
+                          noise=args.noise, noise_seed=args.noise_seed, noise_shape=noise_shape)
     server = make_server(bridge, args.host, args.port)
     signal.signal(signal.SIGTERM, lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())
     log(event='ready', host=args.host, port=server.server_port, load_s=load_s, warmup=warm,
-        clip_tolerance=CLIP_TOLERANCE, image_convention=IMAGE_CONVENTION)
+        clip_tolerance=CLIP_TOLERANCE, image_convention=IMAGE_CONVENTION, noise=bridge.noise_description())
     try:
         server.serve_forever()
     except KeyboardInterrupt:
