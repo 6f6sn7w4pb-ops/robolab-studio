@@ -1,6 +1,6 @@
 # 实验室阶段交接（新对话从这里开始）
 
-更新：2026-11-23。笔记本阶段已全部完成，之后的工作都在实验室电脑上进行。本文件汇总了此前所有对话里的背景、已经做出的决定、当前进度和下一步。新的对话（实验室电脑上的 Claude Code、云端的 Claude Code，或 claude.ai 网页对话）请先完整读完本文件，再动手。
+更新：2026-11-25。笔记本阶段已全部完成，之后的工作都在实验室电脑上进行。本文件汇总了此前所有对话里的背景、已经做出的决定、当前进度和下一步。新的对话（实验室电脑上的 Claude Code、云端的 Claude Code，或 claude.ai 网页对话）请先完整读完本文件，再动手。
 
 - **整体分析**请再读 [LAB_MASTER_PLAN.md](LAB_MASTER_PLAN.md)：从开始到现在再到以后的全景，包括所有建模尺寸、实验室布局、新数据生成器的设计要求、与之前计划的不同。
 - 零样本评估的完整结果见 [LAB_ZEROSHOT_REPORT.md](LAB_ZEROSHOT_REPORT.md)。
@@ -66,6 +66,8 @@
 | 腕部相机要倾斜 | 倾角 ≈ arctan(偏移 ÷ 镜头到指尖中心距离) − 20°；偏移 6/8/10 cm 时约倾 10°/20°/30°；具体值在仿真里选定 | 同上 |
 | 训练、评估都用实验室机器生成的数据 | 用 `outputs/p4d_lab` 及以后在实验室生成的数据 | 不同显卡渲染的图像有细微差别；训练和评估同一台机器才能保证输入一致 |
 | 磁盘 | 第 1–4 步在 C 盘做，始终留 15 GB 以上；1 TB 移动固态硬盘作为工作盘（第 7 节）；**硬盘到之前不生成新数据集、不开始正式训练** | 用户 2026-11-20 决定 |
+| 批量 32 | 之后所有要比较的模型都用批量 32；`max_token_len` 保持 π₀.₅ 的默认值 200 | 用户 2026-11-25 决定，依据 [LAB_LORA_PROBE.md](LAB_LORA_PROBE.md) |
+| 正式训练的规则 | 每个模型的训练步数用 2,000 条试训的验证曲线来定；M1、M2、M3 各跑 2–3 个随机种子；学习率的 `decay_steps` 和 `num_train_steps` 对齐，所有要比较的模型完全一致；`keep_period` 设为 10,000，用验证集挑出最好的检查点后删掉其余的（删除前问用户）；长时间训练前设 Windows 不睡眠、推迟自动更新重启，中断后用 `--resume` 续训。详见 LAB_MASTER_PLAN 14.2 节 | 用户 2026-11-25 决定；训练时间不是约束 |
 
 ## 4. 实验室电脑
 
@@ -134,9 +136,16 @@
    - 大小 **2.72 GB**（每条 22.7 MB）。
    - **可以往已有数据集追加**：重新打开后追加一条，结果和一次写完的数据集逐字节相同。
    - 数据集用已提交的代码（`0b6a173`）转换，记录 `dirty: false`；和之前用未提交代码转出的版本逐字节相同。脚本留了 `EXTRA_FIELDS` 接口，以后加预期接触等标签。
-3. **第 4 步完成（测量）**：π₀.₅ LoRA 配置写在我们自己的仓库（`scripts/openpi_robolab.py`），运行时注册进 openpi 的 `_CONFIGS_DICT`，再调用 openpi 的 `compute_norm_stats.py`、`train.py` 的 `main`，不改 openpi 源码。已下载 `pi05_base`（11.6 GiB）。各 300 步：批量 32 每步 5.43 s、显存峰值 23.3 GiB；批量 64 每步 12.0 s、峰值 31.5 GiB（需 `XLA_PYTHON_CLIENT_MEM_FRACTION=0.9`，默认 75% 上限下第一步显存不足）；显卡利用率约 100%（不是卡在读数据）；检查点每个 9.6 GB；损失约 0.08 → 0.019。建议批量 32，待用户确认。详见 [LAB_LORA_PROBE.md](LAB_LORA_PROBE.md)。
+3. **第 4 步完成（测量）**：π₀.₅ LoRA 配置写在我们自己的仓库（`scripts/openpi_robolab.py`），运行时注册进 openpi 的 `_CONFIGS_DICT`，再调用 openpi 的 `compute_norm_stats.py`、`train.py` 的 `main`，不改 openpi 源码。已下载 `pi05_base`（11.6 GiB）。各 300 步：批量 32 每步 5.43 s、显存峰值 23.3 GiB；批量 64 每步 12.0 s、峰值 31.5 GiB（需 `XLA_PYTHON_CLIENT_MEM_FRACTION=0.9`，默认 75% 上限下第一步显存不足）；显卡利用率约 100%（不是卡在读数据）；检查点每个 9.6 GB；损失约 0.08 → 0.019。建议批量 32，待用户确认（2026-11-25 已定为 32，见 5.5 节）。详见 [LAB_LORA_PROBE.md](LAB_LORA_PROBE.md)。
 
-日志：实验室电脑的 `~/lab_logs/2026-11-18/`、`~/lab_logs/2026-11-20/`、`~/lab_logs/2026-11-23/` 和 `outputs/p4d_lab/logs/`；进度记录：`~/lab_logs/PROGRESS.md`（含确切命令）。
+### 5.5 2026-11-25
+
+1. **两台 D455 的参数已读**（用户在 Windows 上读；PR #12 是读取脚本，PR #13 是 [D455_CAMERA_PARAMS.md](D455_CAMERA_PARAMS.md) 和 `docs/calibration/d455_cameras.json`）：仿真用的 fovy 第一台 63.789°、第二台 65.031°。在实验室电脑上核对过：文档里的视场角和 fovy 都能由原始内参重算出来；MuJoCo 2.3.7 的相机只能填 fovy（不认 `resolution` 等内参属性）。
+2. **用户的决定**：批量定 32（`max_token_len` 保持默认 200）；正式训练的规则见第 3 节和 LAB_MASTER_PLAN 14.2 节。
+3. **清理**：经用户同意，删除了 `probe_bs64_mf090`、空目录 `probe_bs64` 和 `outputs/lerobot/robolab/p4d_v1_train_clean`。`probe_bs32` 保留，用来做冒烟测试（见第 7 节）。
+4. **要等另一个对话的 PR 合并后才做的**：冒烟测试（正式训练前）、第 5 步相机。
+
+日志：实验室电脑的 `~/lab_logs/2026-11-18/`、`~/lab_logs/2026-11-20/`、`~/lab_logs/2026-11-23/`、`~/lab_logs/2026-11-25/` 和 `outputs/p4d_lab/logs/`；进度记录：`~/lab_logs/PROGRESS.md`（含确切命令）。
 
 ## 6. 下一步（按顺序）
 
@@ -145,11 +154,11 @@
 | 1 | ~~续跑 π₀.₅ 零样本评估~~ | **已完成（2026-11-20）**，见 5.3 节 |
 | 2 | ~~复核桥接服务并合并 `pi05-bridge`~~ | **已完成（2026-11-23，PR #11）**。“固定噪声”、观测改用无损 PNG、把桥接测试加进 CI 由另一个对话合成一个单独的 PR（见第 7 节）；官方 LIBERO 复现留到显卡空闲时 |
 | 3 | ~~现有数据转 LeRobot 格式~~ | **已完成（2026-11-23）**，见 5.4 节。接触相关标签以后通过转换脚本的 `EXTRA_FIELDS` 加进同一份数据，按“部位表”设计、不写死粗端/细端 |
-| 4 | 写 π₀.₅ LoRA 配置并做短时训练（**测量已完成，待用户定批量**，见 [LAB_LORA_PROBE.md](LAB_LORA_PROBE.md)；原要求如下） | 先下载 `pi05_base`；用 openpi 的脚本算归一化统计；跑几百步，记录**每步耗时、显存真实峰值**（设 `XLA_PYTHON_CLIENT_PREALLOCATE=false`，或读 JAX `memory_stats` 的 `peak_bytes_in_use`；在 `XLA_PYTHON_CLIENT_MEM_FRACTION=0.9` 下 nvidia-smi 只显示预占的 90%，不是真实需求）、**内存峰值、每个检查点的大小**，损失在下降。**这里定下的批量大小，之后所有要比较的模型都用同一个** |
-| 5 | 相机 | 在仿真里定腕部相机偏移、高度、倾角和外部相机位置，输出 3D 打印支架的尺寸说明；两台 D455 内参已读（2026-11-25，[D455_CAMERA_PARAMS.md](D455_CAMERA_PARAMS.md)：第一台 fovy 63.789°、第二台 65.031°），确定哪台在腕部后按相机填进 `robolab/lab_scene.py`；装好后真机照片与仿真画面叠图核对 |
+| 4 | ~~写 π₀.₅ LoRA 配置并做短时训练~~ | **已完成**（2026-11-23 测量，见 [LAB_LORA_PROBE.md](LAB_LORA_PROBE.md)；2026-11-25 用户定批量 32，之后所有要比较的模型都用 32）。测试检查点 `probe_bs32` 留着做冒烟测试（见第 7 节） |
+| 5 | 相机（**另一个对话的 PR 合并后再做**） | 在仿真里定腕部相机偏移、高度、倾角和外部相机位置，输出 3D 打印支架的尺寸说明；两台 D455 内参已读（2026-11-25，[D455_CAMERA_PARAMS.md](D455_CAMERA_PARAMS.md)：第一台 fovy 63.789°、第二台 65.031°），确定哪台在腕部后按相机填进 `robolab/lab_scene.py`；装好后真机照片与仿真画面叠图核对 |
 | 6 | 工作盘（移动硬盘到货后） | 按第 7 节建 vhdx 工作盘并挂进 WSL；`outputs/` 和 openpi 检查点目录换成链接 |
 | 7 | 新数据生成器（实验室布局） | 先写设计说明给用户和导师确认；再分阶段实现：A0（通用部位格式 + 通用规则教师，用两段式短棒验证）→ A（参数化日常物体）→ 按四层留出生成新测试场景（约 360 条），跑规则教师和零样本（新的 M0）→ 生成 2,000 条试训 → B（PartNet）、C（奇怪形状）→ 扩到 5,000 条。详见 LAB_MASTER_PLAN 第 12–13 节 |
-| 8 | 训练基线和本文方法，做对比评估 | 见第 8 节 |
+| 8 | 训练基线和本文方法，做对比评估 | 见第 8 节；正式训练的规则见第 3 节和 LAB_MASTER_PLAN 14.2 节；开始前先用 `probe_bs32` 做冒烟测试（见第 7 节） |
 
 ## 7. 注意事项和已知问题
 
@@ -159,7 +168,8 @@
 - **动作块**：`pi05_libero` 一次输出 10 步，按官方做法每次执行前 5 步（评估用 `--execute-steps 5`），训练和评估要一致。评估时 `--timeout 60`，推理服务要常驻并预热，服务设 `XLA_PYTHON_CLIENT_PREALLOCATE=false`（否则 JAX 预占约 36 GB，4 个仿真进程的渲染会抢不到显存）。
 - **停止评估的顺序**：先停评估（对主进程发 SIGTERM，它会等每个进程做完当前这条），再停服务；先停服务的话，正在跑的条目会被记成策略错误，且 `--resume` 不会重跑。`--resume` 时参数从 `eval_config.json` 读，`summary.json` 的 `elapsed_wall_s` 只记本次用时。
 - **复跑噪声**：openpi 每处理一次请求就从同一个随机数种子切出新噪声，噪声取决于请求到达顺序；所以模型评估的复跑不会逐字节一致（规则教师会）。
-- **检查点占空间**：openpi 默认每 1,000 步存一次、永久保留每 5,000 步的检查点；按权重约 12 GB 估算，一轮 3 万步训练可能留下七八十 GB。正式训练前用 `keep_period`、`save_interval` 控制。
+- **检查点占空间**：实测每个 9.6 GB（params 6.0 GB + train_state 3.1 GB，见 [LAB_LORA_PROBE.md](LAB_LORA_PROBE.md)）。openpi 每 `save_interval`（默认 1,000）步存一次，只保留最新的一个，再加上步数是 `keep_period` 整数倍的（默认 5,000）。正式训练把 `keep_period` 设为 10,000（3 万步时留第 1 万、2 万步和最后一步共 3 个，约 29 GB）；用验证集挑出最好的检查点后删掉其余的（删除前问用户）。
+- **`scripts/openpi_robolab.py` 目前只适合短时测量**：只在最后一步存检查点（`keep_period=None`），没设学习率计划（openpi 默认的 `decay_steps` 固定是 30,000，不跟总步数走），没有 `--seed` 和 `--resume` 选项。正式训练前要改，见 LAB_MASTER_PLAN 14.2 节。
 - **工作盘（1 TB 移动固态硬盘，预计 2026-11-20 的下一周到货）**：格式化为 NTFS，固定盘符；在上面建一个 vhdx 虚拟磁盘，挂进 WSL（`wsl --mount --vhd <路径> --name robodata`，挂载点 `/mnt/wsl/robodata`），格式化成 ext4；**用 mkfs 格式化之前，必须先把 `lsblk` 的输出给用户确认**；再把 `outputs/` 和 openpi 的检查点目录换成指向它的链接；`outputs` 换成链接后，在 `.git/info/exclude` 里加一行 `/outputs`（`.gitignore` 里的 `outputs/` 不匹配同名链接）。5,000 条时三份数据都能保留；只有扩到 1 万条才需要“每批转换后清理中间文件”，自动删除默认关闭，要用户同意才打开。
 - **空间回收**：在 WSL 里删文件不会让 C 盘变大。如需回收，WSL 3.x 可用 `wsl --manage Ubuntu-22.04 --set-sparse true`（先 `wsl --shutdown`），要在 Windows 的 PowerShell 里做，会关掉 WSL 里的 Claude Code。
 - **相机视场角**：D455 彩色相机规格有两种说法（90°×65° 或 86°×57°）。实测 1280×800 下第一台 89.67°×63.79°、第二台 91.06°×65.01°，两台焦距差 2.4%，仿真里每台用自己的 fovy（[D455_CAMERA_PARAMS.md](D455_CAMERA_PARAMS.md)）。openpi 把 1280×800 缩放到 224×140 再补边成 224×224，新数据的仿真图像应按同样方式处理。
@@ -170,7 +180,7 @@
 - **`HF_LEROBOT_HOME` 必须前后一致**：设成 `~/projects/robolab-studio/outputs/lerobot`。转换脚本、openpi 的 `compute_norm_stats.py` 和 `train.py` 都通过 `$HF_LEROBOT_HOME/<repo_id>` 找数据；同时设 `HF_HUB_OFFLINE=1`，数据缺文件时报错而不是去下载。
 - **openpi 配置写在我们的仓库里**：`scripts/openpi_robolab.py` 在运行时把配置注册进 openpi 的 `_CONFIGS_DICT`，**不改 openpi 的 `src/openpi/training/config.py`**。桥接服务的 `load_openpi_policy` 也用 `get_config`，以后加载我们训练出的模型前也要先注册。
 - **显存上限**：只设 `XLA_PYTHON_CLIENT_PREALLOCATE=false` 时，JAX 的分配上限仍是显卡的 75%（约 36 GiB）；要用到约 43 GiB，需同时设 `XLA_PYTHON_CLIENT_MEM_FRACTION=0.9`。
-- **另一个对话正在做的 PR**（合并前**不要改** `robolab/policy.py`、`robolab/p5_eval.py`、`scripts/serve_openpi_bridge.py`、`tests/test_openpi_bridge.py`、`.github/workflows/checks.yml`）：评估发给模型的图像现在是 JPEG（质量 95），训练数据是无损的，要改成无损 PNG；把 `tests/test_openpi_bridge.py` 加进 GitHub 的自动检查；“固定噪声”：用观测内容（图像、指令、`episode_tick`）的哈希作随机种子，生成 (10, 32) 的噪声传给 `policy.infer(obs, noise=...)`，不用 `observation_id`（它只是请求计数）。
+- **另一个对话正在做的 PR**（合并前**不要改** `robolab/policy.py`、`robolab/p5_eval.py`、`scripts/serve_openpi_bridge.py`、`tests/test_openpi_bridge.py`、`.github/workflows/checks.yml`）：评估发给模型的图像现在是 JPEG（质量 95），训练数据是无损的，要改成无损 PNG；把 `tests/test_openpi_bridge.py` 加进 GitHub 的自动检查；“固定噪声”：用观测内容（图像、指令、`episode_tick`）的哈希作随机种子，生成 (10, 32) 的噪声传给 `policy.infer(obs, noise=...)`，不用 `observation_id`（它只是请求计数）。这个 PR 也会让桥接服务能加载我们注册的配置。**合并后**：先用测试检查点 `outputs/openpi_checkpoints/pi05_robolab_lora/probe_bs32/299` 做一次冒烟测试（训练出的检查点 → 桥接服务 → 评估 2 条），确认桥接服务能加载我们注册的 LoRA 配置，在正式训练前做；第 5 步相机也等合并后再做。
 - **待办**：在官方 LIBERO 任务上复现 `pi05_libero` 的成绩，证明“真实推理”接口正确；等显卡空闲时做。
 
 ## 8. 研究方案（训练与对比实验）
@@ -182,7 +192,7 @@
 - **监督目标（建议）**：“预期接触”。找到一条示范中抓稳的时刻，取两指接触点（世界坐标，抓取前物体静止）；对之前每一帧，用当时的夹爪位姿换算到夹爪坐标系；抓稳后用当前帧的真实接触。这个定义和部位种类无关，扩展到任意命名部位后同样适用。
 - **接入方式（建议先做）**：把预期接触点（两指共 6 个数）拼在动作向量后面一起预测，推理时只取前 7 维。之后可以改成辅助预测头。
 - **关键对照**：用“指定部位中心”代替接触点做监督（M3），以区分“接触”本身的作用和“给一个目标点”的作用。
-- 模型：M0 官方权重不微调；M1 基线 LoRA；M2 本文方法；M3 部位中心对照（以上必做）；M4 当前帧接触、M5 加相机几何、M6 外观变化（视时间）。同样数据、步数、批量。
+- 模型：M0 官方权重不微调；M1 基线 LoRA；M2 本文方法；M3 部位中心对照（以上必做）；M4 当前帧接触、M5 加相机几何、M6 外观变化（视时间）。同样数据、步数、批量（批量 32）；M1、M2、M3 各跑 2–3 个随机种子。
 
 ### 8.2 更完整的实施方案（用户整理的 Book1.xlsx）
 
@@ -195,7 +205,7 @@
 - 主对比：**π₀.₅ 原版、相机坐标系监督（深度）、本方法（夹爪坐标系监督）**，同一检查点、同样数据和步数；资源允许时每组 2–3 个随机种子。
 - 消融：去掉接触头、障碍物通道、几何特征、射线嵌入；线性探针。
 
-建议的最小版本顺序：实验室布局 + 通用部位格式 + 通用规则教师 → 参数化日常物体 → 新测试场景和新 M0 → 2,000 条 → 接触标签和 π₀.₅ 原版基线 → 接触头和相机坐标系对照 → PartNet 和奇怪形状、扩到 5,000 条 → 主对比评估 → 之后再加占据、射线嵌入、纠错段，VGGT 放最后。实验室只有一张 48 GB 显卡，训练只能排队跑，要严格控制训练次数。
+建议的最小版本顺序：实验室布局 + 通用部位格式 + 通用规则教师 → 参数化日常物体 → 新测试场景和新 M0 → 2,000 条 → 接触标签和 π₀.₅ 原版基线 → 接触头和相机坐标系对照 → PartNet 和奇怪形状、扩到 5,000 条 → 主对比评估 → 之后再加占据、射线嵌入、纠错段，VGGT 放最后。实验室只有一张 48 GB 显卡，训练只能排队跑；训练时间不是约束（用户 2026-11-25 确认），M1、M2、M3 各跑 2–3 个随机种子。
 
 ### 8.3 评估
 

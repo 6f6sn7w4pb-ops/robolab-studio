@@ -366,3 +366,9 @@ bash scripts/launch.sh --language-test  # 较长的双语桌面回归
 - 第 2 步：桥接服务经另一个对话审过，PR #11 以合并提交并入 `main`（`37b4e4c` 保留在历史里）。待另一个对话合成的 PR：观测改用无损 PNG、桥接测试加进 CI、按观测内容哈希固定采样噪声；合并前不要改那 5 个文件（见 [LAB_STAGE_HANDOFF.md](LAB_STAGE_HANDOFF.md) 第 7 节）。
 - 第 3 步：`scripts/convert_p4_to_lerobot.py` 把训练集转成 LeRobot（v2.1，无损 PNG，fps 20，`libero_rotated_180`），120 条 / 26,640 帧，53,280 张图像逐像素一致，2.72 GB；追加与一次写完逐字节相同。
 - 第 4 步：`scripts/openpi_robolab.py` 在运行时注册 π₀.₅ LoRA 配置并调用 openpi 的统计和训练脚本。各 300 步：批量 32 每步 5.43 s、显存峰值 23.3 GiB；批量 64 每步 12.0 s、峰值 31.5 GiB（需显存比例 0.9）；显卡利用率约 100%；检查点 9.6 GB；损失 0.08 → 0.019。详见 [LAB_LORA_PROBE.md](LAB_LORA_PROBE.md)。
+
+## 25. D455 参数、批量与正式训练规则（2026-11-25，实验室）
+
+- 用户在 Windows 上读出两台 D455 的出厂参数（PR #12 是读取脚本，PR #13 是 [D455_CAMERA_PARAMS.md](D455_CAMERA_PARAMS.md)）：仿真用的 fovy 第一台 63.789°、第二台 65.031°。该文档第 4 节第 2 条补全了两台共用一个 fovy 时的误差：224×140 画面上下边缘约 1.7 像素、左右边缘约 2.7 像素、四角约 3.2 像素。
+- 用户定下批量 32（`max_token_len` 保持默认 200）和正式训练的规则：步数用 2,000 条试训的验证曲线定；M1–M3 各 2–3 个种子；`decay_steps` 和 `num_train_steps` 对齐；`keep_period` 设为 10,000；长时间训练前防睡眠、推迟更新重启，中断后续训。见 [LAB_MASTER_PLAN.md](LAB_MASTER_PLAN.md) 14.2 节。
+- 清理了批量 64 的测试检查点和转换时留下的重复数据集；批量 32 的测试检查点留作桥接服务的冒烟测试，等另一个对话的 PR 合并后做。第 5 步相机也在那之后做。

@@ -55,9 +55,9 @@ RESOURCE_EXHAUSTED: Out of memory while trying to allocate 21848123248 bytes.
 
 1. **两种批量都能训练，损失都在下降**（约 0.08 → 0.019）。
 2. **瓶颈是显卡计算，不是读数据**：训练时显卡利用率几乎一直 100%。
-3. **批量 64 没有更快**：每秒样本数 5.3，比批量 32 的 5.9 还略低，且需要把显存上限提到 90% 才放得下。批量 32 在默认上限内就能跑，峰值 23.3 GiB，留有余量。**建议定批量 32**（需用户确认；定下后所有要比较的模型都用同一个）。
-4. **训练时间是最大的约束**：批量 32 每步 5.4 s。按 openpi 默认的 3 万步，一次训练约 45 小时；1 万步约 15 小时。M1、M2、M3（必做）各一次就要几天，加种子和消融更多。正式训练的步数要据此规划。
-5. **检查点每个约 9.6 GB**（与批量无关）。原来按 12 GB 估算偏大；但一次训练若按默认每 1,000 步存一个、每 5,000 步永久保留，3 万步仍会留下几十 GB，正式训练要设 `save_interval`、`keep_period`。
+3. **批量 64 没有更快**：每秒样本数 5.3，比批量 32 的 5.9 还略低，且需要把显存上限提到 90% 才放得下。批量 32 在默认上限内就能跑，峰值 23.3 GiB，留有余量。**批量定为 32**（用户 2026-11-25 决定，之后所有要比较的模型都用 32；`max_token_len` 保持 π₀.₅ 的默认值 200）。
+4. **训练时间**：批量 32 每步 5.4 s。按 openpi 默认的 3 万步，一次训练约 45 小时；1 万步约 15 小时。用户 2026-11-25 确认训练时间不是问题：每个模型的训练步数用 2,000 条试训的验证曲线来定，M1、M2、M3 各跑 2–3 个随机种子（见 [LAB_MASTER_PLAN.md](LAB_MASTER_PLAN.md) 14.2 节）。
+5. **检查点每个约 9.6 GB**（与批量无关）。原来按 12 GB 估算偏大。openpi 只保留最新的一个检查点，再加上步数是 `keep_period` 整数倍的（默认 5,000，3 万步会留 6 个、约 58 GB）。正式训练把 `keep_period` 设为 10,000，用验证集挑出最好的检查点后删掉其余的（删除前问用户）。
 6. **内存**：整机最多用到 22.7 GiB（共 30 GiB），可以接受，但训练时不宜同时跑评估或数据生成（与“排队轮流用”的安排一致）。
 
 ## 5. 文件位置（实验室电脑）
@@ -66,7 +66,7 @@ RESOURCE_EXHAUSTED: Out of memory while trying to allocate 21848123248 bytes.
 | --- | --- |
 | 测量结果（含每步损失、全部采样） | `outputs/openpi_probe/bs32.json`、`outputs/openpi_probe/bs64_mf090.json` |
 | 训练日志 | `~/lab_logs/2026-11-23/openpi_train_bs32.log`、`openpi_train_bs64.log`（失败）、`openpi_train_bs64_mf090.log` |
-| 测试检查点（各 9.6 GB，删除前先问用户） | `outputs/openpi_checkpoints/pi05_robolab_lora/probe_bs32/299`、`.../probe_bs64_mf090/299` |
+| 测试检查点（9.6 GB） | `outputs/openpi_checkpoints/pi05_robolab_lora/probe_bs32/299`：保留，等另一个对话的 PR 合并后做冒烟测试（检查点 → 桥接服务 → 评估 2 条）；批量 64 的 `probe_bs64_mf090` 已于 2026-11-25 经用户同意删除 |
 | 归一化统计 | `outputs/openpi_assets/pi05_robolab_lora/robolab/p4d_v1_train/norm_stats.json` |
 
 ## 6. 复现
