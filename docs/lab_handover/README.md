@@ -6,7 +6,8 @@
 
 | 文件 | 内容 |
 | --- | --- |
-| [REGENERATE.md](REGENERATE.md) | 在新电脑上装环境、重新生成数据集和测试检查点的步骤（命令和旧电脑上的结果、用时） |
+| [REGENERATE.md](REGENERATE.md) | 在新电脑上装环境、重新生成数据集和测试检查点的步骤（命令和旧电脑上的结果、用时）；**新电脑是 Ubuntu 20.04**，注意事项在第 1 节 |
+| [archive/README.md](archive/README.md) | 旧电脑的存档：零样本评估的全部数据（不含图片）和 `~/lab_logs` 日志，各一个压缩包；零样本关键帧图片放在 GitHub Release `lab-pc-archive-2026-11` |
 | [PROGRESS.md](PROGRESS.md) | 进度记录，**先看开头的“当前状态（2026-11-25 收工时）”**：下次从哪里接着做、冒烟测试的确切步骤、还没定的事 |
 | [wrist_camera_study_record.md](wrist_camera_study_record.md) | 腕部 D455 安装位置研究的简短记录和初步推荐（偏移 65 mm、仿真高度 10 mm、倾角 36.8°） |
 | [wrist_camera_study_summary.md](wrist_camera_study_summary.md) | 该研究 42 个候选的全表（`outputs/wrist_camera_study/summary.md`） |

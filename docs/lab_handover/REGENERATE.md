@@ -25,7 +25,21 @@
 
 ## 1. 环境
 
-1. 克隆本仓库，按 [INSTALL.md](../INSTALL.md) 安装平台。安装文档里已经包括编译工具和 h5py。固定版本是：MuJoCo 2.3.7、robosuite 1.4.1、NumPy 1.26.4、LIBERO `8f1084e3`、h5py 3.16.0。装好后运行：
+**新电脑是 Ubuntu 20.04，不是旧电脑的 22.04。** [INSTALL.md](../INSTALL.md) 是按 22.04 写的，按规则不改它，差别记在这里，到新电脑上逐条确认：
+
+- **Python 3.10**：
+  - 20.04 系统自带 Python 3.8，默认的 apt 源里没有 `python3.10`、`python3.10-venv`、`python3.10-dev`。
+  - 仿真环境要 Python 3.10；界面环境的 PySide6 6.8.3 要求 Python 3.10 以上，用自带的 3.8 装不上。
+  - 两个安装脚本都能指定解释器，不用改脚本：`scripts/bootstrap_sim.sh` 读 `ROBOLAB_BOOTSTRAP_PYTHON`（默认 `python3.10`），`scripts/setup.sh` 读 `ROBOLAB_GUI_PYTHON`（默认 `python3`）。
+  - 拿到 Python 3.10 有两条路，都要到新电脑上确认能用，**用 sudo 的步骤先问用户**：
+    1. 用 uv 装一个独立的 Python 3.10。装 openpi 本来也要用 uv，而且这条路不需要 sudo：先 `uv python install 3.10`，再 `ROBOLAB_GUI_PYTHON="$(uv python find 3.10)" bash scripts/setup.sh`、`ROBOLAB_BOOTSTRAP_PYTHON="$(uv python find 3.10)" bash scripts/bootstrap_sim.sh`。
+    2. 用 deadsnakes PPA 装系统版的 `python3.10 python3.10-venv python3.10-dev`。20.04 已经过了标准支持期，这个 PPA 是否还提供 20.04 的包要先确认。
+- **其余系统库**：编译工具 `build-essential linux-libc-dev` 仍然需要。robosuite 依赖的 evdev 要在本机编译；用 uv 的 Python 时，Python 头文件已经自带。其他包名大多和 22.04 相同，但 `libxcb-cursor0`（界面用）在 20.04 上能不能装要确认。装不上的逐个报告，不要换成别的版本。
+- **显卡驱动**：openpi 用的 JAX 0.5.3 走 CUDA 12，要求 NVIDIA 驱动 525 以上，先看 `nvidia-smi`。
+- **是不是实时内核**：要确认新电脑是不是控制 Franka 的那台。那台通常是 Ubuntu 20.04 加实时内核（PREEMPT_RT），而 NVIDIA 驱动对实时内核的支持很有限，可能不适合用来训练和渲染。如果是，要和用户商量，训练和数据生成放到哪台机器上。
+- **WSL 相关内容不适用**：如果新电脑是原生 Ubuntu，不是 WSL，那么 `INSTALL.md` 里的 Windows 启动器、WSLg，以及 `PROGRESS.md` 里的 C 盘、vhdx 工作盘都不适用。仿真渲染照样用 `MUJOCO_GL=egl`。
+
+1. 克隆本仓库，按 [INSTALL.md](../INSTALL.md) 安装平台（Python 3.10 按上面的办法准备）。安装文档里已经包括编译工具和 h5py。固定版本是：MuJoCo 2.3.7、robosuite 1.4.1、NumPy 1.26.4、LIBERO `8f1084e3`、h5py 3.16.0。装好后运行：
    ```bash
    bash scripts/launch.sh --doctor
    bash scripts/test_engine.sh          # 旧电脑：125 项通过，3 项按设计跳过
